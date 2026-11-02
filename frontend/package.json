@@ -1,0 +1,28 @@
+{
+  "name": "dbsync-frontend",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "nuxt dev --port 3000",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@microsoft/signalr": "^10.0.0",
+    "bootstrap": "^5.3.8",
+    "bootstrap-icons": "^1.13.1",
+    "nuxt": "^4.6.3",
+    "vue": "^3.5.0",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vue-tsc": "^3.0.0"
+  }
+}
+
+

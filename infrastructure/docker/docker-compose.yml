@@ -1,0 +1,89 @@
+# DBSync - layanan inti untuk DEVELOPMENT: PostgreSQL konfigurasi, Kafka (KRaft), Kafka Connect + Debezium.
+# Jalankan:  docker compose -f infrastructure/docker/docker-compose.yml up -d
+# Database demo (MySQL/PostgreSQL/SQL Server) untuk uji:  --profile demo
+name: dbsync
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: dbsync-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dbsync
+      POSTGRES_PASSWORD: ${DBSYNC_PG_PASSWORD:-dbsync_dev_password}
+      POSTGRES_DB: dbsync
+    ports: ["5432:5432"]          # development saja; JANGAN diekspos di production
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbsync -d dbsync"]
+      interval: 5s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: dbsync-kafka
+    restart: unless-stopped
+    ports: ["9092:9092"]          # listener HOST untuk consumer DBSync yang berjalan di host
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:19092,HOST://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+    volumes: [kafkadata:/var/lib/kafka/data]
+
+  kafka-connect:
+    image: quay.io/debezium/connect:3.0.0.Final
+    container_name: dbsync-kafka-connect
+    restart: unless-stopped
+    depends_on: [kafka]
+    ports: ["8083:8083"]
+    environment:
+      BOOTSTRAP_SERVERS: kafka:19092
+      GROUP_ID: dbsync-connect
+      CONFIG_STORAGE_TOPIC: dbsync_connect_configs
+      OFFSET_STORAGE_TOPIC: dbsync_connect_offsets
+      STATUS_STORAGE_TOPIC: dbsync_connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "true"
+
+  # ---------------- database demo (opsional) ----------------
+  demo-mysql:
+    profiles: [demo]
+    image: mysql:8.4
+    container_name: dbsync-demo-mysql
+    command: ["--log-bin=mysql-bin", "--binlog-format=ROW", "--binlog-row-image=FULL", "--server-id=223344", "--gtid-mode=ON", "--enforce-gtid-consistency=ON"]
+    environment: { MYSQL_ROOT_PASSWORD: demo_root_pw, MYSQL_DATABASE: hrga }
+    ports: ["3307:3306"]
+    volumes: ["../../database/seeds/demo-mysql.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro"]
+
+  demo-postgres:
+    profiles: [demo]
+    image: postgres:17
+    container_name: dbsync-demo-postgres
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]
+    environment: { POSTGRES_USER: demo, POSTGRES_PASSWORD: demo_pw, POSTGRES_DB: hrga_replica }
+    ports: ["5433:5432"]
+    volumes: ["../../database/seeds/demo-postgres.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro"]
+
+  demo-sqlserver:
+    profiles: [demo]
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: dbsync-demo-sqlserver
+    environment: { ACCEPT_EULA: "Y", MSSQL_SA_PASSWORD: "Demo_Passw0rd!", MSSQL_AGENT_ENABLED: "true" }
+    ports: ["1434:1433"]
+
+volumes:
+  pgdata:
+  kafkadata:

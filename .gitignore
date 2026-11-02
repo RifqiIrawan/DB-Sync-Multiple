@@ -1,0 +1,20 @@
+# build
+bin/
+obj/
+.vs/
+*.user
+# node / nuxt
+node_modules/
+.nuxt/
+.output/
+.nitro/
+.data/
+dist/
+# secrets & lokal
+.env
+.env.*
+!.env.example
+**/appsettings.Local.json
+infrastructure/nginx/certs/
+*.log
+TestResults/
