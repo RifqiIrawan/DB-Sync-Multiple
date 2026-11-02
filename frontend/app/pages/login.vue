@@ -2,8 +2,9 @@
 definePageMeta({ layout: false })
 const auth = useAuth()
 const toast = useToast()
-const username = ref('')
-const password = ref('')
+// Prefill hanya saat development (npm run dev); tidak ada di build production.
+const username = ref(import.meta.dev ? 'admin' : '')
+const password = ref(import.meta.dev ? 'Admin#12345' : '')
 const busy = ref(false)
 const error = ref('')
 
