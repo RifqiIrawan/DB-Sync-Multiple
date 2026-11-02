@@ -54,10 +54,18 @@ public sealed class RuleContext
     }
 
     public string PkKey(IReadOnlyDictionary<string, object?> logical) =>
-        JsonSerializer.Serialize(Pk.Select(c => Values.Normalize(logical[c.AName], c.A!.LogicalType)));
+        JsonSerializer.Serialize(Pk.Select(c => Values.Normalize(logical[c.AName], c.A!.LogicalType, true)));
 
     public string RowHash(IReadOnlyDictionary<string, object?> logical) =>
-        Values.Hash(Columns.Select(c => Values.Normalize(logical[c.AName], c.A!.LogicalType)));
+        // kolom generated/computed di salah satu sisi adalah data turunan: tidak ikut perbandingan (mencegah pantulan A<->B)
+        Values.Hash(Columns.Where(c => !c.A!.IsGenerated && !c.B!.IsGenerated).Select(c => Values.Normalize(logical[c.AName], c.A!.LogicalType, IsFixedChar(c))));
+
+    /// <summary>CHAR(n)/NCHAR/bpchar diberi padding spasi oleh database; sisi lain (VARCHAR) tidak.</summary>
+    private static bool IsFixedChar(MappedColumn c)
+    {
+        static bool F(string? t) { t = (t ?? "").ToLowerInvariant(); return t is "char" or "nchar" or "character" or "bpchar" || t.StartsWith("char(") || t.StartsWith("nchar("); }
+        return F(c.A?.NativeType) || F(c.B?.NativeType);
+    }
 
     public JsonDocument PkJson(IReadOnlyDictionary<string, object?> logical) =>
         JsonSerializer.SerializeToDocument(Pk.ToDictionary(c => c.AName, c => Values.ToJsonSafe(logical[c.AName])));

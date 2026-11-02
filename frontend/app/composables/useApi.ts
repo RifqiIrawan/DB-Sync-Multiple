@@ -4,6 +4,8 @@ export function useToast() {
   const toasts = useState<Toast[]>('toasts', () => [])
   let seq = useState('toastSeq', () => 0)
   function push(type: Toast['type'], title: string, text?: string, ms = 5000) {
+    // cegah banjir notifikasi identik (mis. polling berkala saat API mati)
+    if (toasts.value.some(t => t.title === title && t.text === text)) return
     const id = ++seq.value
     toasts.value.push({ id, type, title, text })
     setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id) }, ms)

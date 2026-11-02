@@ -22,6 +22,14 @@ public sealed class PostgreSqlDatabaseConnector : AdoNetConnectorBase
         return new NpgsqlConnection(b.ConnectionString);
     }
 
+    protected override string[] MaintenanceDatabases => new[] { "postgres", "template1" };
+
+    protected override async Task<List<string>> QueryDatabasesAsync(DbConnection c, ConnectionProfile p, CancellationToken ct)
+    {
+        var rows = await QueryAsync(c, p, "SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn AND has_database_privilege(datname, 'CONNECT') ORDER BY datname", ct);
+        return rows.Select(r => r["datname"]!.ToString()!).ToList();
+    }
+
     protected override async Task<List<string>> QuerySchemasAsync(DbConnection c, ConnectionProfile p, CancellationToken ct)
     {
         var rows = await QueryAsync(c, p, "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog','information_schema','pg_toast') AND schema_name NOT LIKE 'pg_temp%' AND schema_name NOT LIKE 'pg_toast_temp%' ORDER BY schema_name", ct);

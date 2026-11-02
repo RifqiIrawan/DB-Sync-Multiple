@@ -11,7 +11,7 @@ async function change() {
 </script>
 <template>
   <div>
-    <CommonPageHeader title="System Settings" />
+    <CommonPageHeader title="Pengaturan" icon="gear" />
     <div class="row g-3">
       <div class="col-lg-5"><div class="card"><div class="card-header">Ganti password</div><form class="card-body" @submit.prevent="change">
         <div class="mb-2"><label class="form-label">Password saat ini</label><input v-model="f.currentPassword" type="password" class="form-control" required autocomplete="current-password"></div>

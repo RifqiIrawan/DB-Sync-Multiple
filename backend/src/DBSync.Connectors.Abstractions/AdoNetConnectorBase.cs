@@ -104,6 +104,25 @@ public abstract class AdoNetConnectorBase : IDatabaseConnector
         }
     }
 
+    /// <summary>Database "pemeliharaan" yang dicoba berurutan untuk login sebelum database target dipilih.</summary>
+    protected virtual string[] MaintenanceDatabases => new[] { "" };
+    protected abstract Task<List<string>> QueryDatabasesAsync(DbConnection c, ConnectionProfile p, CancellationToken ct);
+
+    public async Task<IReadOnlyList<string>> ListDatabasesAsync(ConnectionProfile profile, CancellationToken ct)
+    {
+        Exception? last = null;
+        foreach (var db in MaintenanceDatabases)
+        {
+            try
+            {
+                await using var c = await OpenAsync(profile with { Database = db, CommandTimeoutSeconds = 15 }, ct);
+                return await QueryDatabasesAsync(c, profile, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { last = ex; }
+        }
+        throw Wrap(last ?? new InvalidOperationException("Tidak dapat membaca daftar database."));
+    }
+
     public async Task<IReadOnlyList<DatabaseSchema>> GetSchemasAsync(ConnectionProfile profile, CancellationToken ct)
     {
         try

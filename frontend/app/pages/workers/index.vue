@@ -5,7 +5,7 @@ usePolling(load, 4000)
 </script>
 <template>
   <div>
-    <CommonPageHeader title="Worker Status" subtitle="Heartbeat setiap 10 detik; worker dianggap offline bila tidak ada heartbeat >30 detik" />
+    <CommonPageHeader title="Status Worker" icon="cpu" subtitle="Heartbeat setiap 10 detik; worker dianggap offline bila tidak ada heartbeat >30 detik" />
     <div class="card"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
       <thead><tr><th>Worker</th><th>Tipe</th><th>Host</th><th>Status</th><th>Heartbeat terakhir</th><th>Info</th></tr></thead>
       <tbody>

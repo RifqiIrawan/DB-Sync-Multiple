@@ -32,6 +32,8 @@ public sealed class ScheduleTickJob : IJob
         {
             var busy = await db.SyncRuns.AnyAsync(r => r.SyncGroupId == g.Id && (r.Status == RunStatus.Queued || r.Status == RunStatus.Running || r.Status == RunStatus.Cancelling), ct);
             if (busy) continue;
+            // tidak ada tabel yang siap (initial sync belum selesai) -> jangan menumpuk run kosong di riwayat
+            if (!await db.SyncTableRules.AnyAsync(r => r.SyncGroupId == g.Id && r.IsEnabled && r.InitialSyncStatus.StartsWith("COMPLETED"), ct)) continue;
             var last = await db.SyncRuns.Where(r => r.SyncGroupId == g.Id && r.RunType != RunTypes.Initial)
                 .OrderByDescending(r => r.QueuedAt).Select(r => (DateTimeOffset?)r.QueuedAt).FirstOrDefaultAsync(ct);
             var interval = TimeSpan.FromSeconds(Math.Max(60, g.ScheduleIntervalSeconds)); // minimum 1 menit

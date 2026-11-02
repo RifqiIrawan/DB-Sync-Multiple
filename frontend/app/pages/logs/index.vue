@@ -19,7 +19,7 @@ async function show(e: any) { detail.value = await api.get(`/monitoring/events/$
 </script>
 <template>
   <div>
-    <CommonPageHeader title="Event Queue & Failed Events" subtitle="Setiap perubahan tercatat; gagal permanen masuk dead letter sehingga tidak hilang diam-diam" />
+    <CommonPageHeader title="Antrean Event & Gagal" icon="list-check" subtitle="Setiap perubahan tercatat; gagal permanen masuk dead letter sehingga tidak hilang diam-diam" />
     <ul class="nav nav-tabs mb-3">
       <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'events' }" href="#" @click.prevent="tab = 'events'; page = 1">Semua event</a></li>
       <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'dead' }" href="#" @click.prevent="tab = 'dead'; page = 1">Dead letter / Failed</a></li>

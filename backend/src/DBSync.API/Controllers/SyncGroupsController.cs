@@ -30,6 +30,17 @@ public class SyncGroupsController : ApiBase
     { _db = db; _profiles = profiles; _registry = registry; _cdc = cdc; _cdcOpt = cdcOpt.Value; }
 
     // ---------- helpers ----------
+    /// <summary>Rapikan connector Debezium setelah grup CDC berhenti/dihapus. Kegagalan tidak membatalkan operasi utama.</summary>
+    private async Task ReconcileCdcAsync(string mode, IEnumerable<Guid> connectionIds, CancellationToken ct)
+    {
+        if (mode != SyncModes.Cdc || !_cdcOpt.Enabled) return;
+        foreach (var id in connectionIds.Distinct())
+        {
+            try { await _cdc.ReconcileAsync(id, ct); }
+            catch (Exception ex) { HttpContext.RequestServices.GetRequiredService<ILogger<SyncGroupsController>>().LogWarning(ex, "Gagal merapikan connector CDC untuk koneksi {Conn}", id); }
+        }
+    }
+
     private IQueryable<SyncGroup> Full() => _db.SyncGroups.Include(g => g.Endpoints).ThenInclude(e => e.Connection).ThenInclude(c => c!.Secret);
 
     private async Task<SyncGroup> LoadAsync(Guid id, CancellationToken ct) =>
@@ -135,7 +146,9 @@ public class SyncGroupsController : ApiBase
         await _db.SyncConflicts.Where(x => x.SyncGroupId == id).ExecuteDeleteAsync(ct);
         await _db.SyncEvents.Where(x => x.SyncGroupId == id).ExecuteDeleteAsync(ct);
         await _db.SyncRuns.Where(x => x.SyncGroupId == id).ExecuteDeleteAsync(ct);
+        var connIds = g.Endpoints.Select(e => e.ConnectionId).ToList();
         _db.SyncGroups.Remove(g); await _db.SaveChangesAsync(ct);
+        await ReconcileCdcAsync(g.SyncMode, connIds, ct);
         await Log("DELETE_GROUP", "SyncGroup", id.ToString(), new { g.GroupName });
         return Success(null, "Group dihapus");
     }
@@ -261,6 +274,7 @@ public class SyncGroupsController : ApiBase
             await _db.SyncRuns.Where(r => r.SyncGroupId == id && r.Status == RunStatus.Running).ExecuteUpdateAsync(s => s.SetProperty(r => r.CancelRequested, true).SetProperty(r => r.Status, RunStatus.Cancelling), ct);
         }
         await _db.SaveChangesAsync(ct);
+        if (to == GroupStatus.Stopped) await ReconcileCdcAsync(g.SyncMode, g.Endpoints.Select(e => e.ConnectionId), ct);
         await Log(action, "SyncGroup", id.ToString());
         return Success(new { status = g.Status });
     }

@@ -70,6 +70,15 @@ public sealed class DebeziumConnectManager
         return name;
     }
 
+    /// <summary>Setelah grup CDC dihentikan/dihapus: perkecil daftar tabel connector, atau hapus connector bila tidak ada tabel CDC tersisa.
+    /// Catatan: replication slot PostgreSQL tidak dihapus otomatis (lihat panduan) agar tidak ada risiko kehilangan posisi.</summary>
+    public async Task<string> ReconcileAsync(Guid connectionId, CancellationToken ct)
+    {
+        var tables = await TablesForAsync(connectionId, ct);
+        if (tables.Count == 0) { await DeleteAsync(connectionId, ct); return "deleted"; }
+        await EnsureConnectorAsync(connectionId, ct); return "updated";
+    }
+
     public async Task<ConnectorStatusInfo?> GetStatusAsync(Guid connectionId, CancellationToken ct)
     {
         var name = ConnectorName(connectionId);

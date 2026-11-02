@@ -25,6 +25,12 @@ public class ValuesTests
         Assert.Equal(Values.Normalize(new DateTime(2026, 1, 1, 10, 0, 0), LogicalTypes.Timestamp), Values.Normalize("2026-01-01T10:00:00", LogicalTypes.Timestamp));
     }
 
+    [Fact] public void Trailing_space_is_significant_for_varchar_but_ignored_for_fixed_char()
+    {
+        Assert.NotEqual(Values.Normalize("abc", LogicalTypes.Text), Values.Normalize("abc ", LogicalTypes.Text));
+        Assert.Equal(Values.Normalize("abc", LogicalTypes.Text, true), Values.Normalize("abc   ", LogicalTypes.Text, true));
+    }
+
     [Fact] public void Date_ignores_time_part() =>
         Assert.Equal(Values.Normalize(new DateTime(2020, 1, 15), LogicalTypes.Date), Values.Normalize(new DateTime(2020, 1, 15, 13, 0, 0), LogicalTypes.Date));
 

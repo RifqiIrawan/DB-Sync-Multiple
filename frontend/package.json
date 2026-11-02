@@ -12,6 +12,9 @@
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@microsoft/signalr": "^10.0.0",
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
@@ -24,5 +27,3 @@
     "vue-tsc": "^3.0.0"
   }
 }
-
-

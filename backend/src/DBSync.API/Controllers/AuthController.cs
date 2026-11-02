@@ -28,7 +28,7 @@ public class AuthController : ApiBase
 
     public AuthController(DbSyncContext db, IPasswordHasher hasher, IOptions<JwtOptions> jwt) { _db = db; _hasher = hasher; _jwt = jwt.Value; }
 
-    [AllowAnonymous, HttpPost("login")]
+    [AllowAnonymous, HttpPost("login"), Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("login")]
     public async Task<IActionResult> Login(LoginRequest req, CancellationToken ct)
     {
         var user = await _db.Users.Include(u => u.UserRoles).ThenInclude(r => r.Role).FirstOrDefaultAsync(u => u.Username == req.Username, ct);
@@ -43,7 +43,7 @@ public class AuthController : ApiBase
         return Success(tokens);
     }
 
-    [AllowAnonymous, HttpPost("refresh")]
+    [AllowAnonymous, HttpPost("refresh"), Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("login")]
     public async Task<IActionResult> Refresh(RefreshRequest req, CancellationToken ct)
     {
         var hash = Hash(req.RefreshToken);

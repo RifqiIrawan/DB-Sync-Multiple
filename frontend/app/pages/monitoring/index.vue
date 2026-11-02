@@ -3,7 +3,7 @@ const { data: d, live } = useMonitor()
 </script>
 <template>
   <div>
-    <CommonPageHeader title="Live Monitoring" subtitle="Antrean event, job berjalan, dan kesehatan worker (real-time)">
+    <CommonPageHeader title="Live Monitoring" icon="activity" subtitle="Antrean event, job berjalan, dan kesehatan worker (real-time)">
       <span class="badge" :class="live ? 'text-bg-success' : 'text-bg-secondary'"><i class="bi bi-broadcast"></i> {{ live ? 'Live (SignalR)' : 'Polling' }}</span>
     </CommonPageHeader>
     <div v-if="!d" class="text-muted">Memuat...</div>

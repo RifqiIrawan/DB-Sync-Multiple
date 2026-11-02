@@ -29,6 +29,7 @@ public static class ServiceRegistration
         s.AddHostedService<RunQueueWorker>();
         s.AddHostedService<CdcConsumerWorker>();
         s.AddHostedService<CdcRetryWorker>();
+        s.AddHostedService<RetentionWorker>();
         return s;
     }
 }

@@ -164,6 +164,13 @@ public sealed class DatabaseSeeder
     {
         await _db.Database.EnsureCreatedAsync(ct);
 
+        // Satu run aktif per grup: mencegah run ganda bila dua scheduler/API memasukkan antrean bersamaan.
+        try
+        {
+            await _db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS ux_sync_runs_one_active_per_group ON sync_runs (sync_group_id) WHERE status IN ('QUEUED','RUNNING','CANCELLING')", ct);
+        }
+        catch (Exception ex) { _log.LogWarning(ex, "Indeks run-aktif tidak dapat dibuat (mungkin ada run ganda lama)."); }
+
         foreach (var r in Roles.All)
             if (!await _db.Roles.AnyAsync(x => x.Name == r, ct)) _db.Roles.Add(new Role { Name = r });
         await _db.SaveChangesAsync(ct);
@@ -190,6 +197,7 @@ public static class InfrastructureRegistration
         s.Configure<JwtOptions>(cfg.GetSection(JwtOptions.Section));
         s.Configure<SeedOptions>(cfg.GetSection(SeedOptions.Section));
         s.Configure<CdcOptions>(cfg.GetSection(CdcOptions.Section));
+        s.Configure<RetentionOptions>(cfg.GetSection(RetentionOptions.Section));
         s.AddDbContext<DbSyncContext>(o => o.UseNpgsql(cfg.GetConnectionString("ConfigDb")));
         s.AddSingleton<ISecretProtector, AesGcmSecretProtector>();
         s.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();

@@ -277,6 +277,17 @@ docker compose --env-file .env -f infrastructure/docker/docker-compose.yml -f in
 | CDC PostgreSQL: disk WAL membesar | Replication slot tertinggal; pastikan connector `RUNNING` atau hapus slot yang tak dipakai. |
 | Sequence/auto-increment tujuan tertinggal | DBSync menyalin nilai kunci apa adanya, tidak memajukan sequence. Setelah cut-over: `SELECT setval(...)` (PG) / `ALTER TABLE … AUTO_INCREMENT` (MySQL). |
 
+## Catatan operasional (hasil audit)
+
+- **Form koneksi:** setelah host, port, dan username terisi, daftar database dimuat otomatis dari server dan bisa dipilih dari dropdown (tombol *Muat database* untuk memuat ulang). Password boleh kosong (mis. MariaDB XAMPP `root`); pada edit, password kosong berarti *tidak diubah* (centang *Setel password menjadi kosong* bila memang ingin mengosongkan).
+- **Rate limit login:** maks. 10 percobaan login/refresh per menit per IP (respons `429`). Di belakang proxy, pastikan IP asli diteruskan (`X-Forwarded-For`; compose produksi sudah menyetel `ASPNETCORE_FORWARDEDHEADERS_ENABLED`).
+- **Header keamanan:** API mengirim `nosniff`, `X-Frame-Options: DENY`, CSP ketat, dan tidak menampilkan header `Server`; Nginx produksi menambahkan CSP untuk frontend.
+- **Retensi data:** worker membersihkan harian: event `SUCCESS/SKIPPED` > 30 hari, `processed_events` > 14 hari (harus lebih panjang dari retensi topic Kafka, default 7 hari), run > 90 hari, audit > 365 hari. Atur lewat `Retention:EventDays|ProcessedEventDays|RunDays|AuditDays`. Event `DEAD_LETTER`, `CONFLICT`, dan `RETRY` tidak pernah dihapus otomatis.
+- **Satu run aktif per grup** dijamin oleh indeks unik di database; klik ganda *Sync Now* atau dua scheduler tidak membuat run ganda.
+- **Menghentikan/menghapus grup CDC** memperkecil atau menghapus connector Debezium otomatis. **Replication slot PostgreSQL tidak dihapus otomatis** (agar tidak ada risiko kehilangan posisi); bila connector sudah tidak dipakai lagi, hapus slot manual agar WAL tidak menumpuk: `SELECT pg_drop_replication_slot('<nama_slot>');` (lihat `SELECT * FROM pg_replication_slots;`).
+- **Kolom generated/computed** (SQL Server `AS (...)`, PostgreSQL generated) tidak ditulis ke sisi yang menghitungnya dan tidak ikut perbandingan perubahan.
+- **Spasi di akhir teks** dianggap perubahan untuk `VARCHAR/TEXT`; hanya kolom `CHAR(n)` bertipe tetap yang diabaikan padding-nya.
+- **SQL Server:** user cukup `db_datareader` + `db_datawriter` (+ `ALTER` pada schema bila ada kolom IDENTITY); tidak butuh `VIEW DATABASE PERFORMANCE STATE`.
 ## 10. Batasan
 
 Sesuai spesifikasi V1: tanpa DDL otomatis, topologi pairwise (dua endpoint), tabel wajib PK, mode HYBRID ditolak (aturan kepemilikan belum dirancang), tanpa klaim *exactly-once* lintas database (yang dijamin: *at-least-once* + idempoten + baseline).

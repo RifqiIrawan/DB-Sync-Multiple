@@ -11,7 +11,7 @@ async function syncNow(g: any) { try { await api.post(`/sync-groups/${g.id}/sync
 </script>
 <template>
   <div>
-    <CommonPageHeader title="Jobs" subtitle="Initial sync, jadwal incremental, dan job yang sedang berjalan" />
+    <CommonPageHeader title="Job & Jadwal" icon="clock-history" subtitle="Initial sync, jadwal incremental, dan job yang sedang berjalan" />
     <div class="card mb-3"><div class="card-header">Running / Queued Jobs</div>
       <div class="card-body" v-if="d?.runningRuns?.length">
         <div v-for="r in d.runningRuns" :key="r.id" class="mb-3">

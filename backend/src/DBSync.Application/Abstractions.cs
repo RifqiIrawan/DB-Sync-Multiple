@@ -47,6 +47,17 @@ public sealed class SeedOptions
     public string AdminPassword { get; set; } = "";
 }
 
+public sealed class RetentionOptions
+{
+    public const string Section = "Retention";
+    /// <summary>Event SUCCESS/SKIPPED lebih tua dari N hari dihapus (DEAD_LETTER/CONFLICT/RETRY tidak pernah dihapus otomatis).</summary>
+    public int EventDays { get; set; } = 30;
+    /// <summary>Harus LEBIH PANJANG dari retensi topic Kafka (default 7 hari) agar replay tetap ter-deduplikasi.</summary>
+    public int ProcessedEventDays { get; set; } = 14;
+    public int RunDays { get; set; } = 90;
+    public int AuditDays { get; set; } = 365;
+}
+
 public sealed class CdcOptions
 {
     public const string Section = "Cdc";

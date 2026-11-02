@@ -22,6 +22,13 @@ public sealed class MySqlDatabaseConnector : AdoNetConnectorBase
         return new MySqlConnection(b.ConnectionString);
     }
 
+    protected override async Task<List<string>> QueryDatabasesAsync(DbConnection c, ConnectionProfile p, CancellationToken ct)
+    {
+        var system = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "information_schema", "mysql", "performance_schema", "sys" };
+        var rows = await QueryAsync(c, p, "SHOW DATABASES", ct);
+        return rows.Select(r => r.Values.First()!.ToString()!).Where(n => !system.Contains(n)).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     protected override async Task<List<string>> QuerySchemasAsync(DbConnection c, ConnectionProfile p, CancellationToken ct)
         => new() { p.Database }; // di MySQL, schema == database
 

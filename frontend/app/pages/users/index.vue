@@ -16,7 +16,7 @@ async function remove(u: any) { if (await confirm.ask('Hapus user?', u.username,
 </script>
 <template>
   <div>
-    <CommonPageHeader title="Users & Roles" subtitle="Hak akses ditegakkan di backend (RBAC), bukan sekadar menyembunyikan menu."><button class="btn btn-primary" @click="openNew"><i class="bi bi-plus-lg"></i> Add User</button></CommonPageHeader>
+    <CommonPageHeader title="Pengguna & Role" icon="people" subtitle="Hak akses ditegakkan di backend (RBAC), bukan sekadar menyembunyikan menu."><button class="btn btn-primary" @click="openNew"><i class="bi bi-plus-lg"></i> Add User</button></CommonPageHeader>
     <div class="row g-3">
       <div class="col-lg-8"><div class="card"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
         <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Login terakhir</th><th></th></tr></thead>

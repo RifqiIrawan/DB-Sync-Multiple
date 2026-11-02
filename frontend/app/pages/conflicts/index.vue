@@ -18,7 +18,7 @@ const fmt = (v: any) => v === null || v === undefined ? '∅' : typeof v === 'ob
 </script>
 <template>
   <div>
-    <CommonPageHeader title="Conflict Management" subtitle="Perubahan bersamaan pada kedua endpoint. Pilih versi pemenang untuk disebarkan.">
+    <CommonPageHeader title="Konflik" icon="exclamation-diamond" subtitle="Perubahan bersamaan pada kedua endpoint. Pilih versi pemenang untuk disebarkan.">
       <select v-model="status" class="form-select form-select-sm" style="width: 160px"><option value="PENDING">Menunggu</option><option value="RESOLVED">Selesai</option></select>
     </CommonPageHeader>
     <div class="card"><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0">
@@ -30,7 +30,7 @@ const fmt = (v: any) => v === null || v === undefined ? '∅' : typeof v === 'ob
           <td><CommonStatusBadge :status="c.status" /><div class="small text-muted" v-if="c.resolvedByName">{{ c.resolutionStrategy }} oleh {{ c.resolvedByName }}</div></td>
           <td class="text-end"><button class="btn btn-sm btn-outline-primary" @click="open = c">{{ c.status === 'PENDING' ? 'Tinjau' : 'Detail' }}</button></td>
         </tr>
-        <tr v-if="!list.items.length"><td colspan="7" class="text-center text-muted py-4">Tidak ada konflik.</td></tr>
+        <tr v-if="!list.items.length"><td colspan="7"><CommonEmptyState icon="emoji-smile" title="Tidak ada konflik 🎉" text="Perubahan di kedua database tidak saling bertabrakan. Konflik akan muncul di sini bila baris yang sama diubah di A dan B bersamaan." /></td></tr>
       </tbody></table></div><div class="px-3 pb-2"><CommonPager v-model:page="page" :page-size="size" :total="list.total" /></div></div>
 
     <div v-if="open" class="modal-backdrop-custom" @click.self="open = null">

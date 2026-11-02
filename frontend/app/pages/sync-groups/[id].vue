@@ -37,6 +37,22 @@ async function validate() { busy.value = true; try { report.value = await api.po
 async function cancelRun() { if (prog.value && await confirm.ask('Batalkan job?', '', true)) { await api.post(`/sync-runs/${prog.value.id}/cancel`); await load() } }
 async function saveSettings() { await api.put(`/sync-groups/${id}`, edit.value); toast.success('Pengaturan disimpan'); await load() }
 async function setupCdc() { const r = await api.post(`/sync-groups/${id}/cdc/setup`); toast.success('Connector Debezium dibuat/diperbarui', r.connectors.join(', ')); await loadCdc() }
+// Progres setup: apa yang sudah beres dan langkah berikutnya (menuntun pengguna baru)
+const setup = computed(() => {
+  const r = rules.value
+  const steps = [{ label: 'Pilih tabel' }, { label: 'Validasi' }, { label: 'Initial sync' }, { label: 'Aktif' }]
+  const hasTables = r.length > 0
+  const valid = hasTables && r.every((x: any) => x.validationStatus !== 'INVALID' && x.validationStatus !== 'UNVALIDATED')
+  const initial = hasTables && r.every((x: any) => String(x.initialSyncStatus).startsWith('COMPLETED'))
+  const live = g.value?.status === 'ACTIVE'
+  const current = live ? 4 : initial ? 3 : valid ? 2 : hasTables ? 1 : 0
+  let hint = '', tab = '', cta = ''
+  if (!hasTables) { hint = 'Langkah berikutnya: pilih tabel yang akan disinkronkan.'; tab = 'tables'; cta = 'Pilih tabel' }
+  else if (!valid) { hint = 'Validasi grup untuk memastikan struktur kedua database cocok.'; tab = 'overview'; cta = 'Ke validasi' }
+  else if (!initial) { hint = 'Jalankan Initial Sync untuk menyalin data awal ke database tujuan.'; tab = 'jobs'; cta = 'Ke Initial Sync' }
+  else if (!live && g.value?.status !== 'STOPPED') { hint = 'Semua siap. Klik Activate (kanan atas) agar perubahan disinkronkan otomatis.' }
+  return { steps, current, hint, tab, cta }
+})
 const locked = computed(() => ['ACTIVE', 'PAUSED'].includes(g.value?.status) && false)
 </script>
 <template>
@@ -53,8 +69,20 @@ const locked = computed(() => ['ACTIVE', 'PAUSED'].includes(g.value?.status) && 
       </template>
     </CommonPageHeader>
 
+    <div class="card mb-3"><div class="card-body d-grid gap-3">
+      <SynchronizationFlowDiagram :a="g.endpointA" :b="g.endpointB" :direction="g.syncDirection" :running="active" :active="g.status === 'ACTIVE'" />
+      <div class="stepper">
+        <template v-for="(s, i) in setup.steps" :key="s.label">
+          <div class="st" :class="{ done: i < setup.current, now: i === setup.current }"><span class="n"><i v-if="i < setup.current" class="bi bi-check-lg"></i><template v-else>{{ i + 1 }}</template></span>{{ s.label }}</div>
+          <span v-if="i < setup.steps.length - 1" class="bar" :class="{ done: i < setup.current }"></span>
+        </template>
+      </div>
+      <div v-if="setup.hint" class="alert alert-info py-2 mb-0 d-flex align-items-center gap-2"><i class="bi bi-lightbulb"></i><span class="flex-grow-1">{{ setup.hint }}</span>
+        <button v-if="setup.tab" class="btn btn-sm btn-primary" @click="tab = setup.tab!">{{ setup.cta }}</button></div>
+    </div></div>
+
     <ul class="nav nav-tabs mb-3">
-      <li class="nav-item" v-for="t in [['overview', 'Overview'], ['tables', 'Tables'], ['jobs', 'Jobs'], ['settings', 'Settings'], ['cdc', 'CDC']]" :key="t[0]">
+      <li class="nav-item" v-for="t in [['overview', 'Ringkasan'], ['tables', 'Tabel'], ['jobs', 'Job'], ['settings', 'Pengaturan'], ['cdc', 'CDC']]" :key="t[0]">
         <a class="nav-link" :class="{ active: tab === t[0] }" href="#" @click.prevent="tab = t[0]!">{{ t[1] }}</a></li>
     </ul>
 

@@ -40,7 +40,7 @@ public class ConnectionsController : ApiBase
         if (r.Port is < 1 or > 65535) errs.Add(new("INVALID_PORT", "port", "Port tidak valid."));
         if (string.IsNullOrWhiteSpace(r.DatabaseName)) errs.Add(new("REQUIRED", "databaseName", "Nama database wajib."));
         if (string.IsNullOrWhiteSpace(r.Username)) errs.Add(new("REQUIRED", "username", "Username wajib."));
-        if (requirePassword && string.IsNullOrEmpty(r.Password)) errs.Add(new("REQUIRED", "password", "Password wajib."));
+        // password boleh kosong (sebagian server memang tanpa password); yang wajib hanyalah field-nya ada saat membuat koneksi.
         if (errs.Count > 0) throw new ApiException(400, "Validation failed", errs);
     }
 
@@ -73,7 +73,7 @@ public class ConnectionsController : ApiBase
             ConnectionName = r.ConnectionName.Trim(), DbType = r.DbType.ToUpperInvariant(), Host = r.Host.Trim(), Port = r.Port, DatabaseName = r.DatabaseName.Trim(),
             Username = r.Username, SslEnabled = r.SslEnabled, ConnectionOptions = r.ConnectionOptions == null ? null : Json.ToDoc(r.ConnectionOptions),
         };
-        c.Secret = new ConnectionSecret { ConnectionId = c.Id, EncryptedPassword = _protector.Protect(r.Password!), EncryptionKeyVersion = _protector.CurrentKeyVersion };
+        c.Secret = new ConnectionSecret { ConnectionId = c.Id, EncryptedPassword = _protector.Protect(r.Password ?? ""), EncryptionKeyVersion = _protector.CurrentKeyVersion };
         _db.DbConnections.Add(c);
         await _db.SaveChangesAsync(ct);
         await Log("CREATE_CONNECTION", "DbConnection", c.Id.ToString(), null, new { c.ConnectionName, c.DbType, c.Host, c.Port, c.DatabaseName, c.Username, password = r.Password });
@@ -90,14 +90,14 @@ public class ConnectionsController : ApiBase
         if (inUse && (c.DbType != r.DbType.ToUpperInvariant())) throw new ApiException(409, "IN_USE", "Tipe database tidak dapat diubah saat dipakai group aktif.");
         c.ConnectionName = r.ConnectionName.Trim(); c.DbType = r.DbType.ToUpperInvariant(); c.Host = r.Host.Trim(); c.Port = r.Port;
         c.DatabaseName = r.DatabaseName.Trim(); c.Username = r.Username; c.SslEnabled = r.SslEnabled;
-        c.ConnectionOptions = r.ConnectionOptions == null ? null : Json.ToDoc(r.ConnectionOptions);
+        if (r.ConnectionOptions != null) c.ConnectionOptions = Json.ToDoc(r.ConnectionOptions); // null = pertahankan opsi yang ada (mis. cdcHost)
         c.UpdatedAt = DateTimeOffset.UtcNow; c.Status = "UNKNOWN";
-        if (!string.IsNullOrEmpty(r.Password))
+        if (r.Password != null)   // null = tidak diubah; "" = ubah menjadi password kosong
         {
             c.Secret!.EncryptedPassword = _protector.Protect(r.Password); c.Secret.EncryptionKeyVersion = _protector.CurrentKeyVersion; c.Secret.RotatedAt = DateTimeOffset.UtcNow;
         }
         await _db.SaveChangesAsync(ct);
-        await Log("UPDATE_CONNECTION", "DbConnection", id.ToString(), before, new { r.ConnectionName, r.DbType, r.Host, r.Port, r.DatabaseName, r.Username, passwordChanged = !string.IsNullOrEmpty(r.Password) });
+        await Log("UPDATE_CONNECTION", "DbConnection", id.ToString(), before, new { r.ConnectionName, r.DbType, r.Host, r.Port, r.DatabaseName, r.Username, passwordChanged = r.Password != null });
         return Success(Dto(c));
     }
 
@@ -116,8 +116,32 @@ public class ConnectionsController : ApiBase
     public async Task<IActionResult> TestRaw(ConnectionRequest r, CancellationToken ct)
     {
         Validate(r, true);
-        var profile = _profiles.FromRaw(r.DbType.ToUpperInvariant(), r.Host, r.Port, r.DatabaseName, r.Username, r.Password!, r.SslEnabled, r.ConnectionOptions);
+        var profile = _profiles.FromRaw(r.DbType.ToUpperInvariant(), r.Host, r.Port, r.DatabaseName, r.Username, r.Password ?? "", r.SslEnabled, r.ConnectionOptions);
         return Success(await _registry.Get(profile.DbType).TestConnectionAsync(profile, ct));
+    }
+
+    public record DatabaseListRequest(string DbType, string Host, int Port, string Username, string? Password, bool SslEnabled, Dictionary<string, string>? ConnectionOptions, Guid? ConnectionId);
+
+    /// <summary>Daftar database pada server (untuk dropdown di form koneksi). Password boleh kosong bila ConnectionId diberikan (memakai password tersimpan).</summary>
+    [HttpPost("databases"), Authorize(Policy = Policies.Manage)]
+    public async Task<IActionResult> ListDatabases(DatabaseListRequest r, CancellationToken ct)
+    {
+        var errs = new List<ApiError>();
+        if (!DbTypes.All.Contains(r.DbType?.ToUpperInvariant())) errs.Add(new("INVALID_DB_TYPE", "dbType", "dbType harus MYSQL, POSTGRESQL, atau SQLSERVER."));
+        if (string.IsNullOrWhiteSpace(r.Host)) errs.Add(new("REQUIRED", "host", "Host wajib."));
+        if (r.Port is < 1 or > 65535) errs.Add(new("INVALID_PORT", "port", "Port tidak valid."));
+        if (string.IsNullOrWhiteSpace(r.Username)) errs.Add(new("REQUIRED", "username", "Username wajib."));
+        var password = r.Password;
+        if (password == null && r.ConnectionId != null)   // tidak dikirim -> pakai password tersimpan (edit koneksi)
+        {
+            var saved = await _db.DbConnections.Include(x => x.Secret).AsNoTracking().FirstOrDefaultAsync(x => x.Id == r.ConnectionId, ct);
+            if (saved != null) password = _profiles.Create(saved).Password;
+        }
+        if (errs.Count > 0) throw new ApiException(400, "Validation failed", errs);
+
+        var profile = _profiles.FromRaw(r.DbType.ToUpperInvariant(), r.Host.Trim(), r.Port, "", r.Username, password ?? "", r.SslEnabled, r.ConnectionOptions);
+        try { return Success(await _registry.Get(profile.DbType).ListDatabasesAsync(profile, ct)); }
+        catch (ConnectorException ex) { throw new ApiException(422, "Tidak dapat membaca daftar database", new() { new(ex.Code, null, ex.Message) }); }
     }
 
     [HttpPost("{id:guid}/test"), Authorize(Policy = Policies.Operate)]

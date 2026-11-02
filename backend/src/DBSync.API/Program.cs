@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
@@ -67,6 +68,27 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 });
 builder.Services.AddAuthorization(Policies.Register);
 builder.Services.AddSignalR();
+builder.WebHost.ConfigureKestrel(o => o.AddServerHeader = false);
+
+// Batasi percobaan login/refresh per IP (mencegah brute force / credential stuffing).
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.AddPolicy("login", ctx => RateLimitPartition.GetSlidingWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new SlidingWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), SegmentsPerWindow = 6, QueueLimit = 0 }));
+    o.OnRejected = async (c, ct) =>
+    {
+        c.HttpContext.Response.Headers.RetryAfter = "60";
+        c.HttpContext.Response.ContentType = "application/json";
+        await c.HttpContext.Response.WriteAsync(JsonSerializer.Serialize(new
+        {
+            success = false, message = "Terlalu banyak percobaan. Coba lagi dalam 1 menit.",
+            errors = new[] { new { code = "RATE_LIMITED", field = (string?)null, message = "Terlalu banyak percobaan login." } },
+            traceId = c.HttpContext.TraceIdentifier
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web)), ct);
+    };
+});
 builder.Services.AddHostedService<MonitorBroadcaster>();
 
 var origins = cfg.GetSection("Cors:Origins").Get<string[]>() ?? new[] { "http://localhost:3000" };
@@ -78,7 +100,24 @@ var app = builder.Build();
 app.UseMiddleware<ErrorMiddleware>();
 app.UseForwardedHeaders(new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto });
 if (!app.Environment.IsDevelopment()) app.UseHsts();
+// header keamanan untuk semua respons API
+app.Use(async (ctx, next) =>
+{
+    ctx.Response.OnStarting(() =>
+    {
+        var h = ctx.Response.Headers;
+        h["X-Content-Type-Options"] = "nosniff";
+        h["X-Frame-Options"] = "DENY";
+        h["Referrer-Policy"] = "no-referrer";
+        h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+        h["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'";
+        h["Cache-Control"] = "no-store";
+        return Task.CompletedTask;
+    });
+    await next();
+});
 app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

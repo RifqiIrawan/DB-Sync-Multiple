@@ -10,7 +10,7 @@ onMounted(load); watch(page, load); watch(f, () => { page.value = 1; load() }, {
 </script>
 <template>
   <div>
-    <CommonPageHeader title="Audit Logs" subtitle="Aktivitas user. Password dan token tidak pernah direkam." />
+    <CommonPageHeader title="Audit Log" icon="shield-check" subtitle="Aktivitas user. Password dan token tidak pernah direkam." />
     <div class="card mb-3"><div class="card-body d-flex gap-2 flex-wrap">
       <input v-model.lazy="f.username" class="form-control form-control-sm" style="width: 160px" placeholder="Username">
       <input v-model.lazy="f.action" class="form-control form-control-sm" style="width: 200px" placeholder="Aksi (mis. LOGIN)">

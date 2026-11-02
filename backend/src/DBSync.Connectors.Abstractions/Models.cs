@@ -70,6 +70,8 @@ public interface IDatabaseConnector
     string DatabaseType { get; }
 
     Task<ConnectionTestResult> TestConnectionAsync(ConnectionProfile profile, CancellationToken ct);
+    /// <summary>Daftar database yang bisa diakses user pada server ini (tanpa perlu memilih database lebih dulu).</summary>
+    Task<IReadOnlyList<string>> ListDatabasesAsync(ConnectionProfile profile, CancellationToken ct);
     Task<IReadOnlyList<DatabaseSchema>> GetSchemasAsync(ConnectionProfile profile, CancellationToken ct);
     Task<IReadOnlyList<TableMetadata>> GetTablesAsync(ConnectionProfile profile, string? schema, CancellationToken ct);
     Task<TableSchema> GetTableSchemaAsync(ConnectionProfile profile, string schema, string table, CancellationToken ct);

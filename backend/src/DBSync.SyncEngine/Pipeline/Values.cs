@@ -13,7 +13,7 @@ public static class Values
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    public static string Normalize(object? v, string logicalType)
+    public static string Normalize(object? v, string logicalType, bool trimEnd = false)
     {
         if (v is null || v is DBNull) return "\u0000NULL";
         switch (v)
@@ -39,7 +39,7 @@ public static class Values
                 if (logicalType == LogicalTypes.Json) return CanonJson(s);
                 if (logicalType == LogicalTypes.Boolean) return s.Equals("true", StringComparison.OrdinalIgnoreCase) || s == "1" ? "1" : "0";
                 if (logicalType == LogicalTypes.Uuid && Guid.TryParse(s, out var gg)) return gg.ToString("D").ToLowerInvariant();
-                return s.TrimEnd(' ');
+                return trimEnd ? s.TrimEnd(' ') : s;   // trim hanya untuk CHAR(n) bertipe tetap (padding), bukan VARCHAR/TEXT
             case JsonElement je: return CanonJson(je.GetRawText());
             default: return Convert.ToString(v, Inv) ?? "";
         }
@@ -145,7 +145,7 @@ public static class Values
         catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
         {
             throw new ConnectorException(ErrorClass.Permanent, "TYPE_CONVERSION",
-                $"Gagal mengonversi nilai '{v}' ({v.GetType().Name}) ke kolom {target.Name} ({target.NativeType}): {ex.Message}", ex);
+                $"Gagal mengonversi nilai '{v}' ({v?.GetType().Name}) ke kolom {target.Name} ({target.NativeType}): {ex.Message}", ex);
         }
     }
 

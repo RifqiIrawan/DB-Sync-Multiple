@@ -8,7 +8,7 @@ watch(page, load); watch(f, () => { page.value = 1; load() }, { deep: true }); u
 </script>
 <template>
   <div>
-    <CommonPageHeader title="Sync History" subtitle="Riwayat eksekusi sinkronisasi" />
+    <CommonPageHeader title="Riwayat Sinkronisasi" icon="journal-text" subtitle="Riwayat eksekusi sinkronisasi" />
     <div class="card mb-3"><div class="card-body d-flex gap-2 flex-wrap">
       <select v-model="f.groupId" class="form-select form-select-sm" style="width: 220px"><option value="">Semua group</option><option v-for="g in groups" :key="g.id" :value="g.id">{{ g.groupName }}</option></select>
       <select v-model="f.status" class="form-select form-select-sm" style="width: 150px"><option value="">Semua status</option><option v-for="s in ['QUEUED', 'RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED', 'CANCELLED']" :key="s">{{ s }}</option></select>
@@ -23,7 +23,7 @@ watch(page, load); watch(f, () => { page.value = 1; load() }, { deep: true }); u
           <td class="text-end">{{ fmtNum(r.recordsRead) }}</td><td class="text-end">{{ fmtNum(r.recordsInserted) }}</td><td class="text-end">{{ fmtNum(r.recordsUpdated) }}</td>
           <td class="text-end">{{ fmtNum(r.recordsDeleted) }}</td><td class="text-end" :class="{ 'text-danger': r.recordsFailed }">{{ fmtNum(r.recordsFailed) }}</td><td class="text-end">{{ r.conflictsDetected }}</td>
         </tr>
-        <tr v-if="!list.items.length"><td colspan="11" class="text-center text-muted py-4">Belum ada riwayat.</td></tr>
+        <tr v-if="!list.items.length"><td colspan="11"><CommonEmptyState icon="journal-text" title="Belum ada riwayat" text="Setiap eksekusi sinkronisasi akan tercatat di sini." /></td></tr>
       </tbody></table></div><div class="px-3 pb-2"><CommonPager v-model:page="page" :page-size="size" :total="list.total" /></div></div>
   </div>
 </template>

@@ -24,6 +24,14 @@ public sealed class SqlServerDatabaseConnector : AdoNetConnectorBase
         return new SqlConnection(b.ConnectionString);
     }
 
+    protected override string[] MaintenanceDatabases => new[] { "master" };
+
+    protected override async Task<List<string>> QueryDatabasesAsync(DbConnection c, ConnectionProfile p, CancellationToken ct)
+    {
+        var rows = await QueryAsync(c, p, "SELECT name FROM sys.databases WHERE database_id > 4 AND state = 0 AND HAS_DBACCESS(name) = 1 ORDER BY name", ct);
+        return rows.Select(r => r["name"]!.ToString()!).ToList();
+    }
+
     protected override async Task<List<string>> QuerySchemasAsync(DbConnection c, ConnectionProfile p, CancellationToken ct)
     {
         var rows = await QueryAsync(c, p, "SELECT name FROM sys.schemas WHERE name NOT IN ('sys','INFORMATION_SCHEMA','guest') AND name NOT LIKE 'db[_]%' AND name <> 'cdc' ORDER BY name", ct);
@@ -33,7 +41,7 @@ public sealed class SqlServerDatabaseConnector : AdoNetConnectorBase
     protected override async Task<List<TableMetadata>> QueryTablesAsync(DbConnection c, ConnectionProfile p, string? schema, CancellationToken ct)
     {
         var rows = await QueryAsync(c, p,
-            @"SELECT s.name AS s, t.name AS t, (SELECT SUM(ps.row_count) FROM sys.dm_db_partition_stats ps WHERE ps.object_id=t.object_id AND ps.index_id IN (0,1)) AS r
+            @"SELECT s.name AS s, t.name AS t, (SELECT SUM(ps.rows) FROM sys.partitions ps WHERE ps.object_id=t.object_id AND ps.index_id IN (0,1)) AS r
               FROM sys.tables t JOIN sys.schemas s ON s.schema_id=t.schema_id
               WHERE t.is_ms_shipped=0 AND s.name NOT IN ('cdc') AND (@s IS NULL OR s.name=@s) ORDER BY 1,2",
             ct, ("s", schema));
@@ -100,6 +108,30 @@ public sealed class SqlServerDatabaseConnector : AdoNetConnectorBase
     protected override void ConfigureParameter(DbParameter prm, ColumnInfo? col, object? value)
     {
         if (col is null) return;
+        // NULL tanpa tipe dikirim sebagai nvarchar -> gagal untuk varbinary/uniqueidentifier/dll. Tetapkan tipe dari metadata kolom.
+        if (value is null && prm is SqlParameter sp)
+        {
+            switch (col.NativeType)
+            {
+                case "varbinary" or "binary" or "image" or "timestamp" or "rowversion": sp.SqlDbType = System.Data.SqlDbType.VarBinary; sp.Size = -1; break;
+                case "uniqueidentifier": sp.SqlDbType = System.Data.SqlDbType.UniqueIdentifier; break;
+                case "bit": sp.SqlDbType = System.Data.SqlDbType.Bit; break;
+                case "int": sp.SqlDbType = System.Data.SqlDbType.Int; break;
+                case "bigint": sp.SqlDbType = System.Data.SqlDbType.BigInt; break;
+                case "smallint": sp.SqlDbType = System.Data.SqlDbType.SmallInt; break;
+                case "tinyint": sp.SqlDbType = System.Data.SqlDbType.TinyInt; break;
+                case "decimal" or "numeric" or "money" or "smallmoney": sp.SqlDbType = System.Data.SqlDbType.Decimal; break;
+                case "float": sp.SqlDbType = System.Data.SqlDbType.Float; break;
+                case "real": sp.SqlDbType = System.Data.SqlDbType.Real; break;
+                case "date": sp.SqlDbType = System.Data.SqlDbType.Date; break;
+                case "datetime": sp.SqlDbType = System.Data.SqlDbType.DateTime; break;
+                case "smalldatetime": sp.SqlDbType = System.Data.SqlDbType.SmallDateTime; break;
+                case "datetime2": sp.SqlDbType = System.Data.SqlDbType.DateTime2; break;
+                case "datetimeoffset": sp.SqlDbType = System.Data.SqlDbType.DateTimeOffset; break;
+                case "time": sp.SqlDbType = System.Data.SqlDbType.Time; break;
+            }
+            return;
+        }
         if (col.NativeType == "datetimeoffset" && value is DateTime dt)
             prm.Value = new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc));
         if (col.NativeType == "time" && value is DateTime d2) prm.Value = d2.TimeOfDay;

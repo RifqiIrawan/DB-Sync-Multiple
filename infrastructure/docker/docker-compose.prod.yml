@@ -21,6 +21,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"   # percaya X-Forwarded-* dari Nginx (IP asli untuk audit & rate limit)
       ConnectionStrings__ConfigDb: Host=postgres;Port=5432;Database=dbsync;Username=dbsync;Password=${DBSYNC_PG_PASSWORD}
       Jwt__SigningKey: ${DBSYNC_JWT_KEY:?isi DBSYNC_JWT_KEY (>=32 karakter)}
       Security__CurrentKeyVersion: v1
