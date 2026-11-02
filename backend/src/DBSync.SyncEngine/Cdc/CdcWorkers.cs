@@ -26,28 +26,61 @@ public sealed class CdcApplier
     private readonly ChangeApplier _applier;
     public CdcApplier(DbSyncContext db, ChangeApplier applier) { _db = db; _applier = applier; }
 
+    /// <summary>Event live dari Kafka.</summary>
     public async Task<CdcOutcome> ApplyAsync(RuleContext ctx, char src, CdcRecord rec, Guid eventId, object position, CancellationToken ct)
     {
-        char tgt = RuleContext.Other(src);
-        string tgtRole = tgt.ToString();
-        if ((src == 'A' && !ctx.CanAToB) || (src == 'B' && !ctx.CanBToA)) return CdcOutcome.SkippedPolicy;
-
         bool isDelete = rec.Op == "d";
         var row = isDelete ? rec.Before : rec.After;
         if (row == null) return CdcOutcome.SkippedPolicy;
         var op = isDelete ? Ops.Delete : rec.Op == "u" ? Ops.Update : Ops.Insert;
-        if (op == Ops.Insert && !ctx.Rule.SyncInsert || op == Ops.Update && !ctx.Rule.SyncUpdate || op == Ops.Delete && !ctx.Rule.SyncDelete) return CdcOutcome.SkippedPolicy;
-
-        if (await _db.ProcessedEvents.AnyAsync(p => p.EventId == eventId && p.DestinationRole == tgtRole, ct)) return CdcOutcome.SkippedDuplicate;
-
         var logical = ctx.ToLogical(row, src);
-        var pk = ctx.PkKey(logical);
         var hash = isDelete ? null : ctx.RowHash(logical);
+        return await CoreAsync(ctx, src, op, logical, hash, eventId, new { position, hash, ts = rec.TsMs, lsn = rec.Lsn }, null, ct);
+    }
+
+    /// <summary>
+    /// Event yang sudah tersimpan (PENDING saat group di-pause, atau RETRY): diputar ulang lewat logika yang SAMA dengan event live,
+    /// sehingga echo suppression dan deteksi konflik tetap berlaku.
+    /// </summary>
+    public async Task<CdcOutcome> ApplyStoredAsync(RuleContext ctx, SyncEvent ev, CancellationToken ct)
+    {
+        var logical = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in ev.Payload!.RootElement.EnumerateObject())
+            logical[p.Name] = p.Value.ValueKind == JsonValueKind.String && p.Value.GetString()!.StartsWith("base64:")
+                ? Convert.FromBase64String(p.Value.GetString()![7..]) : p.Value.Clone();
+        string? hash = ev.SourcePosition!.RootElement.TryGetProperty("hash", out var h) && h.ValueKind == JsonValueKind.String ? h.GetString() : null;
+        return await CoreAsync(ctx, ev.SourceRole[0], ev.Operation, logical, hash, ev.EventId, null, ev, ct);
+    }
+
+    private async Task<CdcOutcome> FinishStoredAsync(SyncEvent? ev, string status, string message, CdcOutcome outcome, CancellationToken ct)
+    {
+        if (ev != null) { ev.Status = status; ev.ErrorMessage = message; ev.NextRetryAt = null; ev.ProcessedAt = DateTimeOffset.UtcNow; await _db.SaveChangesAsync(ct); }
+        return outcome;
+    }
+
+    private async Task<CdcOutcome> CoreAsync(RuleContext ctx, char src, string op, Dictionary<string, object?> logical, string? hash, Guid eventId, object? sourcePos, SyncEvent? existing, CancellationToken ct)
+    {
+        char tgt = RuleContext.Other(src);
+        string tgtRole = tgt.ToString();
+        bool isDelete = op == Ops.Delete;
+        if ((src == 'A' && !ctx.CanAToB) || (src == 'B' && !ctx.CanBToA)) return await FinishStoredAsync(existing, EventStatus.Skipped, "Arah tidak diizinkan", CdcOutcome.SkippedPolicy, ct);
+        if (op == Ops.Insert && !ctx.Rule.SyncInsert || op == Ops.Update && !ctx.Rule.SyncUpdate || op == Ops.Delete && !ctx.Rule.SyncDelete)
+            return await FinishStoredAsync(existing, EventStatus.Skipped, "Operasi dinonaktifkan pada rule", CdcOutcome.SkippedPolicy, ct);
+
+        if (await _db.ProcessedEvents.AnyAsync(p => p.EventId == eventId && p.DestinationRole == tgtRole, ct))
+            return await FinishStoredAsync(existing, EventStatus.Skipped, "Duplikat (sudah diproses)", CdcOutcome.SkippedDuplicate, ct);
+
+        var pk = existing?.PkKey ?? ctx.PkKey(logical);
         var baseline = await RowStateStore.GetAsync(_db, ctx.Rule.Id, pk, ct);
 
         // loop prevention / echo suppression: perubahan ini hasil tulisan DBSync sendiri atau no-op
-        if (!isDelete && baseline == hash) { await MarkProcessedAsync(eventId, tgtRole, hash, ct); return CdcOutcome.SkippedEcho; }
-        if (isDelete && baseline == RowStateStore.Deleted) { await MarkProcessedAsync(eventId, tgtRole, null, ct); return CdcOutcome.SkippedEcho; }
+        if ((!isDelete && baseline == hash) || (isDelete && baseline == RowStateStore.Deleted))
+        {
+            _db.ProcessedEvents.Add(new ProcessedEvent { EventId = eventId, DestinationRole = tgtRole, ResultHash = hash });
+            if (existing != null) return await FinishStoredAsync(existing, EventStatus.Skipped, "Sudah sinkron (echo/no-op)", CdcOutcome.SkippedEcho, ct);
+            await _db.SaveChangesAsync(ct);
+            return CdcOutcome.SkippedEcho;
+        }
 
         // konflik pada mode dua arah
         if (ctx.CanAToB && ctx.CanBToA && baseline != null && baseline != RowStateStore.Deleted)
@@ -59,27 +92,26 @@ public sealed class CdcApplier
             if (th != baseline && th != hash)
             {
                 var strat = ctx.Group.ConflictStrategy;
-                if (strat == ConflictStrategies.APriority) { if (src != 'A') return CdcOutcome.SkippedPolicy; }
-                else if (strat == ConflictStrategies.BPriority) { if (src != 'B') return CdcOutcome.SkippedPolicy; }
+                if (strat == ConflictStrategies.APriority) { if (src != 'A') return await FinishStoredAsync(existing, EventStatus.Skipped, "Konflik: A_PRIORITY menang", CdcOutcome.SkippedPolicy, ct); }
+                else if (strat == ConflictStrategies.BPriority) { if (src != 'B') return await FinishStoredAsync(existing, EventStatus.Skipped, "Konflik: B_PRIORITY menang", CdcOutcome.SkippedPolicy, ct); }
                 else
                 {
-                    await RecordConflictAsync(ctx, pk, logical, tgtRow, src, isDelete, ct);
-                    return CdcOutcome.Conflict;
+                    await RecordConflictAsync(ctx, pk, logical, tgtRow, src, isDelete, existing == null, ct);
+                    return await FinishStoredAsync(existing, EventStatus.Conflict, "Konflik: menunggu resolusi manual", CdcOutcome.Conflict, ct);
                 }
             }
         }
 
         var change = new PendingChange(src, tgt, op, pk, logical, hash, isDelete ? ctx.BuildDelete(logical, tgt) : ctx.BuildUpsert(logical, tgt));
-        var ev = new SyncEvent
+        var ev = existing ?? new SyncEvent
         {
             EventId = eventId, SyncGroupId = ctx.Group.Id, TableRuleId = ctx.Rule.Id, SourceRole = src.ToString(),
             Direction = src == 'A' ? "A_TO_B" : "B_TO_A", Operation = op, PkKey = pk, PrimaryKey = ctx.PkJson(logical), Payload = ctx.RowJson(logical),
-            SourcePosition = JsonSerializer.SerializeToDocument(new { position, hash, ts = rec.TsMs, lsn = rec.Lsn }),
-            Status = EventStatus.Processing,
+            SourcePosition = JsonSerializer.SerializeToDocument(sourcePos), Status = EventStatus.Processing,
         };
         var outcome = (await _applier.ApplyAsync(ctx, tgt, new[] { change }, 1, ctx.Group.MaxRetries, ct)).Single();
         EventRecorder.UpdateFromOutcome(ev, outcome.Error, ctx.Group.MaxRetries);
-        _db.SyncEvents.Add(ev);
+        if (existing == null) _db.SyncEvents.Add(ev);
         if (outcome.Error == null)
         {
             await RowStateStore.UpsertAsync(_db, ctx.Rule.Id, new[] { (pk, hash ?? RowStateStore.Deleted) }, ct);
@@ -88,7 +120,6 @@ public sealed class CdcApplier
         await _db.SaveChangesAsync(ct);
         return outcome.Error == null ? CdcOutcome.Applied : ev.Status == EventStatus.DeadLetter ? CdcOutcome.DeadLetter : CdcOutcome.Retry;
     }
-
 
     /// <summary>Group di-pause: simpan event secara durable (PENDING) agar diproses setelah resume; tidak ada yang dibuang.</summary>
     public async Task<CdcOutcome> EnqueueAsync(RuleContext ctx, char src, CdcRecord rec, Guid eventId, object position, CancellationToken ct)
@@ -115,7 +146,7 @@ public sealed class CdcApplier
         await _db.SaveChangesAsync(ct);
     }
 
-    private async Task RecordConflictAsync(RuleContext ctx, string pk, Dictionary<string, object?> srcLogical, Dictionary<string, object?>? tgtLogical, char src, bool isDelete, CancellationToken ct)
+    private async Task RecordConflictAsync(RuleContext ctx, string pk, Dictionary<string, object?> srcLogical, Dictionary<string, object?>? tgtLogical, char src, bool isDelete, bool addEvent, CancellationToken ct)
     {
         var existing = await _db.SyncConflicts.FirstOrDefaultAsync(c => c.TableRuleId == ctx.Rule.Id && c.PkKey == pk && c.Status == "PENDING", ct);
         var a = src == 'A' ? (isDelete ? null : srcLogical) : tgtLogical;
@@ -129,11 +160,12 @@ public sealed class CdcApplier
                 SyncGroupId = ctx.Group.Id, TableRuleId = ctx.Rule.Id, PkKey = pk, PrimaryKey = ctx.PkJson(srcLogical),
                 EndpointAValue = ja, EndpointBValue = jb, ConflictType = isDelete || tgtLogical == null ? "DELETE_UPDATE" : "BOTH_UPDATED",
             });
-            _db.SyncEvents.Add(new SyncEvent
-            {
-                SyncGroupId = ctx.Group.Id, TableRuleId = ctx.Rule.Id, PkKey = pk, PrimaryKey = ctx.PkJson(srcLogical), Direction = "BIDIRECTIONAL",
-                Operation = Ops.Update, Status = EventStatus.Conflict, ErrorCode = "CONFLICT", SourcePosition = null,
-            });
+            if (addEvent)
+                _db.SyncEvents.Add(new SyncEvent
+                {
+                    SyncGroupId = ctx.Group.Id, TableRuleId = ctx.Rule.Id, PkKey = pk, PrimaryKey = ctx.PkJson(srcLogical), Direction = "BIDIRECTIONAL",
+                    Operation = Ops.Update, Status = EventStatus.Conflict, ErrorCode = "CONFLICT", SourcePosition = null,
+                });
         }
         await _db.SaveChangesAsync(ct);
     }
@@ -290,40 +322,24 @@ public sealed class CdcRetryWorker : BackgroundService
         var activeGroups = db.SyncGroups.Where(g => g.Status == GroupStatus.Active).Select(g => g.Id);
         var events = await db.SyncEvents.Where(e => activeGroups.Contains(e.SyncGroupId) && e.SourcePosition != null && (e.Status == EventStatus.Retry || e.Status == EventStatus.Pending) && (e.NextRetryAt == null || e.NextRetryAt <= now))
             .OrderBy(e => e.CreatedAt).Take(50).ToListAsync(ct);
+        var applier = scope.ServiceProvider.GetRequiredService<CdcApplier>();
         foreach (var ev in events)
         {
             try
             {
-                // superseded oleh event lebih baru yang sudah sukses?
-                if (await db.SyncEvents.AnyAsync(x => x.TableRuleId == ev.TableRuleId && x.PkKey == ev.PkKey && x.Status == EventStatus.Success && x.CreatedAt > ev.CreatedAt, ct))
-                { ev.Status = EventStatus.Skipped; ev.ErrorMessage = "Digantikan event yang lebih baru."; continue; }
+                // digantikan oleh event LEBIH BARU dari SISI SUMBER YANG SAMA yang sudah sukses? (perubahan dari sisi lain tidak boleh dibuang)
+                if (await db.SyncEvents.AnyAsync(x => x.TableRuleId == ev.TableRuleId && x.PkKey == ev.PkKey && x.SourceRole == ev.SourceRole && x.Status == EventStatus.Success && x.CreatedAt > ev.CreatedAt, ct))
+                { ev.Status = EventStatus.Skipped; ev.ErrorMessage = "Digantikan event yang lebih baru dari sisi yang sama."; ev.ProcessedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct); continue; }
 
                 var ctx = await scope.ServiceProvider.GetRequiredService<IRuleContextFactory>().CreateAsync(ev.TableRuleId, ct);
-                char src = ev.SourceRole[0], tgt = RuleContext.Other(src);
-                var logical = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-                foreach (var p in ev.Payload!.RootElement.EnumerateObject())
-                    logical[p.Name] = p.Value.ValueKind == JsonValueKind.String && p.Value.GetString()!.StartsWith("base64:") ? Convert.FromBase64String(p.Value.GetString()![7..]) : p.Value.Clone();
-                string? hash = ev.SourcePosition!.RootElement.TryGetProperty("hash", out var h) && h.ValueKind == JsonValueKind.String ? h.GetString() : null;
-                var op = ev.Operation == Ops.Delete ? ctx.BuildDelete(logical, tgt) : ctx.BuildUpsert(logical, tgt);
-                var cur = await RowStateStore.GetAsync(db, ctx.Rule.Id, ev.PkKey, ct);
-                if ((ev.Operation != Ops.Delete && cur != null && cur == hash) || (ev.Operation == Ops.Delete && cur == RowStateStore.Deleted))
-                { ev.Status = EventStatus.Skipped; ev.ErrorMessage = "Sudah sinkron (echo/no-op)."; continue; }
-                var change = new PendingChange(src, tgt, ev.Operation, ev.PkKey, logical, hash, op);
-                var outcome = (await scope.ServiceProvider.GetRequiredService<ChangeApplier>().ApplyAsync(ctx, tgt, new[] { change }, 1, ctx.Group.MaxRetries, ct)).Single();
-                EventRecorder.UpdateFromOutcome(ev, outcome.Error, ctx.Group.MaxRetries);
-                if (outcome.Error == null)
-                {
-                    await RowStateStore.UpsertAsync(db, ctx.Rule.Id, new[] { (ev.PkKey, hash ?? RowStateStore.Deleted) }, ct);
-                    if (!await db.ProcessedEvents.AnyAsync(p => p.EventId == ev.EventId && p.DestinationRole == tgt.ToString(), ct))
-                        db.ProcessedEvents.Add(new ProcessedEvent { EventId = ev.EventId, DestinationRole = tgt.ToString(), ResultHash = hash });
-                }
+                // logika sama dengan event live: echo suppression + deteksi konflik + apply
+                await applier.ApplyStoredAsync(ctx, ev, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 ev.RetryCount++; ev.ErrorMessage = ex.Message; ev.Status = ev.RetryCount > 5 ? EventStatus.DeadLetter : EventStatus.Retry;
                 ev.NextRetryAt = DateTimeOffset.UtcNow + Backoff.Delay(ev.RetryCount, 30);
+                await db.SaveChangesAsync(ct);
             }
-            await db.SaveChangesAsync(ct);
-        }
-    }
+        }    }
 }

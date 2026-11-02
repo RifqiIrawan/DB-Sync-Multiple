@@ -163,6 +163,7 @@ public static class Values
     public static object? ToJsonSafe(object? v) => v switch
     {
         null => null,
+        JsonElement je => je.Clone(),
         byte[] b => "base64:" + Convert.ToBase64String(b),
         DateTime d => d.ToString("yyyy-MM-ddTHH:mm:ss.FFFFFFF", Inv),
         DateOnly d => d.ToString("yyyy-MM-dd", Inv),
