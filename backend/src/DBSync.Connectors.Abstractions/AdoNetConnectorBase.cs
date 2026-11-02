@@ -298,5 +298,13 @@ public abstract class AdoNetConnectorBase : IDatabaseConnector
     }
 
     // ---- util ----
+    /// <summary>Alamat DB bagi Debezium bisa berbeda (mis. nama container). Opsi koneksi "cdcHost"/"cdcPort" menimpa host/port.</summary>
+    protected static IDictionary<string, string> WithCdcEndpoint(IDictionary<string, string> cfg, ConnectionProfile p)
+    {
+        if (p.Options != null && p.Options.TryGetValue("cdcHost", out var h) && !string.IsNullOrWhiteSpace(h)) cfg["database.hostname"] = h;
+        if (p.Options != null && p.Options.TryGetValue("cdcPort", out var pt) && !string.IsNullOrWhiteSpace(pt)) cfg["database.port"] = pt;
+        return cfg;
+    }
+
     protected static string Esc(string s) => s.Replace("'", "''");
 }

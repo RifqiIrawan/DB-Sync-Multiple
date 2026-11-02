@@ -144,6 +144,6 @@ public sealed class MySqlDatabaseConnector : AdoNetConnectorBase
             ["schema.history.internal.kafka.topic"] = $"schemahistory.{prefix}",
             ["include.schema.changes"] = "false",
         };
-        return cfg;
+        return WithCdcEndpoint(cfg, p);
     }
 }

@@ -7,4 +7,7 @@ CREATE TABLE employees (
 CREATE ROLE dbsync LOGIN PASSWORD 'dbsync_demo_pw' REPLICATION;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO dbsync;
 GRANT ALL ON SCHEMA public TO dbsync;
-CREATE PUBLICATION dbsync_pub_manual FOR ALL TABLES;
+-- Debezium (publication.autocreate.mode=filtered) membuat publication sendiri: butuh CREATE pada database dan kepemilikan tabel.
+GRANT CREATE ON DATABASE hrga_replica TO dbsync;
+ALTER TABLE departments OWNER TO dbsync;
+ALTER TABLE employees OWNER TO dbsync;

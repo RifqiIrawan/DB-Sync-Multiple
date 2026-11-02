@@ -165,7 +165,7 @@ public sealed class SqlServerDatabaseConnector : AdoNetConnectorBase
     }
 
     public override IDictionary<string, string> BuildDebeziumConfig(ConnectionProfile p, string prefix, IReadOnlyList<(string Schema, string Table)> tables, string kafka, string name)
-        => new Dictionary<string, string>
+        => WithCdcEndpoint(new Dictionary<string, string>
         {
             ["connector.class"] = "io.debezium.connector.sqlserver.SqlServerConnector",
             ["database.hostname"] = p.Host, ["database.port"] = p.Port.ToString(), ["database.user"] = p.Username, ["database.password"] = p.Password,
@@ -175,5 +175,5 @@ public sealed class SqlServerDatabaseConnector : AdoNetConnectorBase
             ["table.include.list"] = string.Join(",", tables.Select(t => $"{t.Schema}.{t.Table}")),
             ["schema.history.internal.kafka.bootstrap.servers"] = kafka,
             ["schema.history.internal.kafka.topic"] = $"schemahistory.{prefix}",
-        };
+        }, p);
 }

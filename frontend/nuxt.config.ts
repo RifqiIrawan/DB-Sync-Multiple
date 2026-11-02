@@ -8,7 +8,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       // Alamat API DBSync. Override dengan env NUXT_PUBLIC_API_BASE
-      apiBase: 'http://localhost:5000',
+      apiBase: 'http://localhost:18080',
     },
   },
   app: {

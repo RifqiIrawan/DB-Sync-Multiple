@@ -22,13 +22,29 @@ Panduan ini membawa Anda dari nol sampai seluruh aplikasi (API, Worker, Frontend
 
 | Komponen | Folder | Port dev | Fungsi |
 |---|---|---|---|
-| Frontend (Nuxt) | `frontend/` | 3000 | UI dashboard |
-| API (ASP.NET Core) | `backend/src/DBSync.API` | 5000 | REST + SignalR + auth |
+| Frontend (Nuxt) | `frontend/` | 13000 | UI dashboard |
+| API (ASP.NET Core) | `backend/src/DBSync.API` | 18080 | REST + SignalR + auth |
 | Worker (.NET) | `backend/src/DBSync.Worker` | – | Eksekusi sync, scheduler (Quartz), CDC consumer |
-| Database konfigurasi | PostgreSQL | 5432 | Konfigurasi, event, checkpoint, audit |
-| Kafka + Kafka Connect/Debezium | Docker | 9092 / 8083 | **Hanya** untuk mode CDC |
+| Database konfigurasi | PostgreSQL (Docker) | 15432 | Konfigurasi, event, checkpoint, audit |
+| Kafka + Kafka Connect/Debezium | Docker | 19092 / 18091 | **Hanya** untuk mode CDC |
 
 Untuk **mode Scheduled**, Anda hanya butuh: PostgreSQL + API + (Worker atau `Worker:Embedded=true`) + Frontend. Kafka tidak diperlukan.
+
+### Daftar port default (sengaja di rentang yang jarang dipakai)
+
+| Layanan | Port host |
+|---|---|
+| Frontend (Nuxt dev) | 13000 |
+| API | 18080 |
+| PostgreSQL konfigurasi (Docker) | 15432 |
+| Kafka (listener host) | 19092 |
+| Kafka Connect / Debezium | 18091 |
+| MySQL demo | 13307 |
+| PostgreSQL demo | 15434 |
+| SQL Server demo | 11444 |
+| Nginx production (HTTP / HTTPS) | 18088 / 18443 |
+
+Semua bisa diubah: compose (ports:), Urls di appsettings API, `--port` di rontend/package.json, Cors:Origins, dan NUXT_PUBLIC_API_BASE. Cek port bebas: `Get-NetTCPConnection -State Listen | ? LocalPort -eq 18080`
 
 ## 2. Prasyarat
 
@@ -57,7 +73,7 @@ Bila PostgreSQL belum berjalan di Windows: buka *Services* → start `postgresql
 ```powershell
 docker compose -f infrastructure/docker/docker-compose.yml up -d postgres
 ```
-(Container ini sudah membuat user/db `dbsync` dengan password `dbsync_dev_password`.)
+(Container ini sudah membuat user/db `dbsync` dengan password `dbsync_dev_password` dan **mendengarkan di port 15432** — bukan 5432 — agar tidak bentrok dengan PostgreSQL lain di mesin Anda. Default `ConnectionStrings:ConfigDb` pada appsettings memakai port 15432. Jika memakai PostgreSQL native di 5432, set `$env:ConnectionStrings__ConfigDb` ke port tersebut.)
 
 ✅ Cek: `psql -h localhost -U dbsync -d dbsync -c "select 1"` mengembalikan `1`.
 
@@ -75,7 +91,7 @@ Hasilnya (`DBSYNC_MASTER_KEY`, `DBSYNC_JWT_KEY`) bisa dipasang lewat environment
 $env:Security__MasterKeys__v1 = "<DBSYNC_MASTER_KEY>"
 $env:Jwt__SigningKey          = "<DBSYNC_JWT_KEY>"
 $env:Seed__AdminPassword      = "<password admin awal>"
-$env:ConnectionStrings__ConfigDb = "Host=localhost;Port=5432;Database=dbsync;Username=dbsync;Password=<pw>"
+$env:ConnectionStrings__ConfigDb = "Host=localhost;Port=15432;Database=dbsync;Username=dbsync;Password=<pw>"
 ```
 
 > ⚠️ **Master key harus sama** untuk API dan Worker, dan harus Anda backup terpisah. Jika hilang, password koneksi database yang tersimpan tidak bisa didekripsi. Mengganti key setelah ada koneksi tersimpan membuat koneksi lama tak terbaca — gunakan versi kunci (`v2`) untuk rotasi: tambah `Security__MasterKeys__v2`, set `Security__CurrentKeyVersion=v2`; kunci `v1` tetap dibutuhkan untuk mendekripsi data lama.
@@ -95,8 +111,8 @@ Saat pertama kali jalan, API membuat seluruh tabel konfigurasi, 5 role, dan user
 
 ✅ Cek: 
 ```powershell
-Invoke-RestMethod http://localhost:5000/health        # Healthy
-Invoke-RestMethod http://localhost:5000/health/db     # status: ok
+Invoke-RestMethod http://localhost:18080/health        # Healthy
+Invoke-RestMethod http://localhost:18080/health/db     # status: ok
 ```
 Log harus memuat `User admin awal 'admin' dibuat` dan `RunQueueWorker ... dimulai`.
 
@@ -110,15 +126,15 @@ Worker memakai database konfigurasi & master key yang sama. Anda boleh menjalank
 ```powershell
 cd frontend
 npm install
-npm run dev            # http://localhost:3000
+npm run dev            # http://localhost:13000
 ```
-Alamat API diatur lewat `NUXT_PUBLIC_API_BASE` (default `http://localhost:5000`):
+Alamat API diatur lewat `NUXT_PUBLIC_API_BASE` (default `http://localhost:18080`):
 ```powershell
-$env:NUXT_PUBLIC_API_BASE = "http://localhost:5000"
+$env:NUXT_PUBLIC_API_BASE = "http://localhost:18080"
 ```
-CORS API mengizinkan `http://localhost:3000` (ubah di `Cors:Origins`).
+CORS API mengizinkan `http://localhost:13000` (ubah di `Cors:Origins`).
 
-✅ Cek: buka http://localhost:3000 → login `admin` / `Admin#12345` → Dashboard tampil dan badge **Live (SignalR)** hijau. **Segera ganti password** di *System Settings*.
+✅ Cek: buka http://localhost:13000 → login `admin` / `Admin#12345` → Dashboard tampil dan badge **Live (SignalR)** hijau. **Segera ganti password** di *System Settings*.
 
 ## 4. Menyiapkan user database sumber/target
 
@@ -185,23 +201,23 @@ CDC memakai Debezium → Kafka → consumer DBSync (di Worker). Perlu Docker.
 docker compose -f infrastructure/docker/docker-compose.yml up -d            # postgres, kafka, kafka-connect
 docker compose -f infrastructure/docker/docker-compose.yml --profile demo up -d   # + MySQL/PG/SQL Server demo (opsional)
 ```
-✅ Cek: `Invoke-RestMethod http://localhost:8083/` mengembalikan versi Kafka Connect; `docker ps` menampilkan 3+ container `Up`.
+✅ Cek: `Invoke-RestMethod http://localhost:18091/` mengembalikan versi Kafka Connect; `docker ps` menampilkan 3+ container `Up`.
 
-> Database demo: MySQL `localhost:3307` (db `hrga`, user `dbsync`/`dbsync_demo_pw`), PostgreSQL `localhost:5433` (db `hrga_replica`, user `dbsync`/`dbsync_demo_pw`). Dari **container Kafka Connect**, host database harus bisa dijangkau — gunakan `host.docker.internal` sebagai Host pada koneksi DBSync agar Debezium (di Docker) dan DBSync (di host) memakai alamat yang sama.
+> Database demo: MySQL `localhost:13307` (db `hrga`, user `dbsync`/`dbsync_demo_pw`), PostgreSQL `localhost:15434` (db `hrga_replica`, user `dbsync`/`dbsync_demo_pw`). Alamat database bisa berbeda antara DBSync (di host) dan Debezium (di container). Isi **Host/Port** koneksi dengan alamat dari sisi host (mis. `localhost` / `3307`), lalu tambahkan opsi koneksi `cdcHost` dan `cdcPort` (mis. `dbsync-demo-mysql` / `3306`, nama container di jaringan Docker) via API (`connectionOptions`). Bila opsi ini kosong, Debezium memakai Host/Port yang sama. Bila port host bentrok, ubah `DBSYNC_PG_PORT` (PostgreSQL konfigurasi) atau port demo di compose.
 
 ### 6.2 Aktifkan CDC pada DBSync
 Set pada **API dan Worker**:
 ```powershell
 $env:Cdc__Enabled = "true"
-$env:Cdc__KafkaBootstrap = "localhost:9092"            # dilihat dari host
+$env:Cdc__KafkaBootstrap = "localhost:19092"            # dilihat dari host
 $env:Cdc__KafkaBootstrapForConnect = "kafka:19092"     # dilihat dari container Connect
-$env:Cdc__KafkaConnectUrl = "http://localhost:8083"
+$env:Cdc__KafkaConnectUrl = "http://localhost:18091"
 ```
 Restart API/Worker.
 
 ### 6.3 Prasyarat CDC per vendor
 - **MySQL:** `log_bin=ON`, `binlog_format=ROW`, `binlog_row_image=FULL`, user punya hak replikasi (lihat bagian 4). Container demo sudah benar. XAMPP/MariaDB default biasanya `log_bin=OFF` — aktifkan di `my.ini` (`log-bin=mysql-bin`, `binlog_format=ROW`, `server-id=1`) lalu restart.
-- **PostgreSQL:** `wal_level=logical` (restart), user `REPLICATION`. Pantau replication slot agar tidak menahan WAL (lihat tab CDC pada group).
+- **PostgreSQL:** `wal_level=logical` (restart), user `REPLICATION`, plus `GRANT CREATE ON DATABASE <db> TO dbsync;` dan user harus **pemilik tabel** (`ALTER TABLE ... OWNER TO dbsync`) karena Debezium membuat publication sendiri (tanpa ini connector gagal: *Unable to create filtered publication*). Pantau replication slot agar tidak menahan WAL (lihat tab CDC pada group).
 - **SQL Server:** `EXEC sys.sp_cdc_enable_db;` lalu per tabel `EXEC sys.sp_cdc_enable_table @source_schema=N'dbo', @source_name=N'employees', @role_name=NULL;` dan **SQL Server Agent harus Running**. Tidak tersedia di semua edisi.
 
 ### 6.4 Buat group CDC
@@ -222,7 +238,7 @@ Jaminan: *at-least-once + idempotent*. Offset Kafka di-commit hanya setelah even
 ```bash
 docker compose --env-file .env -f infrastructure/docker/docker-compose.yml -f infrastructure/docker/docker-compose.prod.yml up -d --build
 ```
-   Hasil: proxy Nginx (80/443) → frontend + API (`/api`, `/hubs`), Worker terpisah, PostgreSQL/Kafka **tidak** diekspos.
+   Hasil: proxy Nginx (host port 18088 untuk HTTP dan 18443 untuk HTTPS; ubah via `DBSYNC_HTTP_PORT`/`DBSYNC_HTTPS_PORT` dan samakan redirect di `infrastructure/nginx/nginx.conf`) → frontend + API (`/api`, `/hubs`), Worker terpisah, PostgreSQL/Kafka **tidak** diekspos.
 4. Login → ganti password admin → buat user per role (Administrator, Operator, Viewer, Auditor).
 5. **Backup:** (a) database `dbsync` (`pg_dump`) terjadwal, (b) master key & JWT key di tempat terpisah, (c) konfigurasi connector Kafka Connect. **Uji restore** berkala.
 6. Worker di jaringan cabang: jalankan `DBSync.Worker` di jaringan yang bisa menjangkau database, dengan akses keluar ke PostgreSQL konfigurasi (via VPN/TLS) dan master key yang sama. Jangan membuka port database ke internet.
@@ -257,7 +273,7 @@ docker compose --env-file .env -f infrastructure/docker/docker-compose.yml -f in
 | Run berhenti saat Worker dimatikan | Normal: lease kedaluwarsa (60 dtk) lalu run dikembalikan ke antrean; Initial Sync lanjut dari checkpoint. |
 | Event `DEAD_LETTER` | Buka *Event Queue → Dead letter*: lihat `errorMessage` (mis. string terlalu panjang, NOT NULL, FK). Perbaiki penyebab, klik **Retry**. |
 | `TYPE_INCOMPATIBLE` / `UNSUPPORTED_TYPE` | Perbaiki di Column Mapping (nonaktifkan kolom) atau ubah tipe di database. |
-| CDC: connector tidak muncul | `Cdc:Enabled=true`? Kafka Connect hidup di `:8083`? Lihat pesan error di tab CDC. |
+| CDC: connector tidak muncul | `Cdc:Enabled=true`? Kafka Connect hidup di `:18091`? Lihat pesan error di tab CDC. |
 | CDC PostgreSQL: disk WAL membesar | Replication slot tertinggal; pastikan connector `RUNNING` atau hapus slot yang tak dipakai. |
 | Sequence/auto-increment tujuan tertinggal | DBSync menyalin nilai kunci apa adanya, tidak memajukan sequence. Setelah cut-over: `SELECT setval(...)` (PG) / `ALTER TABLE … AUTO_INCREMENT` (MySQL). |
 

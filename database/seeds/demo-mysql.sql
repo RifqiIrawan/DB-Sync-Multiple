@@ -1,4 +1,5 @@
 -- Database demo MySQL (Endpoint A) untuk uji DBSync
+SET NAMES utf8mb4;   -- penting: tanpa ini data Unicode tersimpan rusak (mojibake)
 USE hrga;
 CREATE TABLE departments (id INT PRIMARY KEY, name VARCHAR(100) NOT NULL);
 CREATE TABLE employees (

@@ -91,7 +91,7 @@ public sealed class DebeziumConnectManager
 
     public async Task RestartAsync(Guid connectionId, CancellationToken ct)
     {
-        var res = await _http.PostAsync($"connectors/{ConnectorName(connectionId)}/restart?includeTasks=true&onlyFailed=false", null, ct);
+        var res = await _http.PostAsync($"connectors/{ConnectorName(connectionId)}/restart?includeTasks=true&onlyFailed=false", new StringContent("{}", System.Text.Encoding.UTF8, "application/json"), ct);
         res.EnsureSuccessStatusCode();
     }
 }

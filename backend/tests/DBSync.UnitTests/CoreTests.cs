@@ -16,6 +16,15 @@ public class ValuesTests
     [Fact] public void Decimal_scale_is_ignored() =>
         Assert.Equal(Values.Normalize(5000000.50m, LogicalTypes.Decimal), Values.Normalize(5000000.5000m, LogicalTypes.Decimal));
 
+    [Fact] public void Cdc_string_decimal_equals_typed_decimal() =>
+        Assert.Equal(Values.Normalize(5000000.50m, LogicalTypes.Decimal), Values.Normalize("5000000.50", LogicalTypes.Decimal));
+
+    [Fact] public void Cdc_string_integer_and_timestamp_equal_typed_values()
+    {
+        Assert.Equal(Values.Normalize(42, LogicalTypes.Integer), Values.Normalize("42", LogicalTypes.Integer));
+        Assert.Equal(Values.Normalize(new DateTime(2026, 1, 1, 10, 0, 0), LogicalTypes.Timestamp), Values.Normalize("2026-01-01T10:00:00", LogicalTypes.Timestamp));
+    }
+
     [Fact] public void Date_ignores_time_part() =>
         Assert.Equal(Values.Normalize(new DateTime(2020, 1, 15), LogicalTypes.Date), Values.Normalize(new DateTime(2020, 1, 15, 13, 0, 0), LogicalTypes.Date));
 

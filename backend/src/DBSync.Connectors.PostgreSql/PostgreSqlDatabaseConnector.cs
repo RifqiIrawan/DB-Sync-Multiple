@@ -150,6 +150,9 @@ public sealed class PostgreSqlDatabaseConnector : AdoNetConnectorBase
             res.Add(new("wal_level", wal == "logical", $"wal_level={wal} (harus logical)"));
             var priv = await QueryAsync(c, p, "SELECT rolreplication OR rolsuper AS ok FROM pg_roles WHERE rolname=current_user", ct);
             res.Add(new("replication_privilege", priv.Count > 0 && (bool)priv[0]["ok"]!, "User butuh atribut REPLICATION (atau superuser)"));
+            var canCreate = await QueryAsync(c, p, "SELECT has_database_privilege(current_user, current_database(), 'CREATE') AS ok", ct);
+            res.Add(new("create_publication_privilege", canCreate.Count > 0 && (bool)canCreate[0]["ok"]!,
+                "Debezium membuat publication otomatis: user butuh GRANT CREATE ON DATABASE dan harus pemilik tabel (ALTER TABLE ... OWNER TO user)"));
             var slots = await QueryAsync(c, p, "SELECT slot_name, active, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS lag FROM pg_replication_slots", ct);
             res.Add(new("replication_slots", true, slots.Count == 0 ? "Belum ada slot" : string.Join("; ", slots.Select(s => $"{s["slot_name"]} active={s["active"]} lag={s["lag"]}"))));
             foreach (var (s, t) in tables)
@@ -166,7 +169,7 @@ public sealed class PostgreSqlDatabaseConnector : AdoNetConnectorBase
     public override IDictionary<string, string> BuildDebeziumConfig(ConnectionProfile p, string prefix, IReadOnlyList<(string Schema, string Table)> tables, string kafka, string name)
     {
         var slot = ("dbsync_" + prefix).ToLowerInvariant().Replace('-', '_');
-        return new Dictionary<string, string>
+        return WithCdcEndpoint(new Dictionary<string, string>
         {
             ["connector.class"] = "io.debezium.connector.postgresql.PostgresConnector",
             ["plugin.name"] = "pgoutput",
@@ -177,6 +180,6 @@ public sealed class PostgreSqlDatabaseConnector : AdoNetConnectorBase
             ["publication.name"] = ("dbsync_pub_" + prefix).ToLowerInvariant().Replace('-', '_'),
             ["publication.autocreate.mode"] = "filtered",
             ["table.include.list"] = string.Join(",", tables.Select(t => $"{t.Schema}.{t.Table}")),
-        };
+        }, p);
     }
 }

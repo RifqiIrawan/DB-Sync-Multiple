@@ -11,7 +11,7 @@ Aplikasi web untuk sinkronisasi database lintas vendor (MySQL/MariaDB, PostgreSQ
 Ringkas (development):
 ```powershell
 # 1) PostgreSQL konfigurasi: user & db "dbsync" (lihat panduan 3.1)
-cd backend; dotnet run --project src/DBSync.API      # http://localhost:5000
-cd frontend; npm install; npm run dev                # http://localhost:3000   (admin / Admin#12345 — hanya dev)
+cd backend; dotnet run --project src/DBSync.API      # http://localhost:18080
+cd frontend; npm install; npm run dev                # http://localhost:13000   (admin / Admin#12345 — hanya dev)
 ```
 Dokumen teknis tambahan ada di `docs/`.

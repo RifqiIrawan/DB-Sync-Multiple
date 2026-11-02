@@ -32,6 +32,10 @@ public static class Values
             case Guid g: return g.ToString("D").ToLowerInvariant();
             case byte[] bytes: return "b64:" + Convert.ToBase64String(SHA256.HashData(bytes));
             case string s:
+                // nilai string dari CDC (Debezium) harus setara dengan nilai bertipe dari pembacaan langsung
+                if (logicalType is LogicalTypes.Decimal or LogicalTypes.Float or LogicalTypes.Integer && decimal.TryParse(s, NumberStyles.Float, Inv, out var ds)) return NormDecimal(ds);
+                if (logicalType is LogicalTypes.Timestamp or LogicalTypes.TimestampTz && DateTime.TryParse(s, Inv, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var ts2)) return FormatTs(ts2);
+                if (logicalType == LogicalTypes.Date && DateTime.TryParse(s, Inv, DateTimeStyles.None, out var dd)) return dd.ToString("yyyy-MM-dd", Inv);
                 if (logicalType == LogicalTypes.Json) return CanonJson(s);
                 if (logicalType == LogicalTypes.Boolean) return s.Equals("true", StringComparison.OrdinalIgnoreCase) || s == "1" ? "1" : "0";
                 if (logicalType == LogicalTypes.Uuid && Guid.TryParse(s, out var gg)) return gg.ToString("D").ToLowerInvariant();

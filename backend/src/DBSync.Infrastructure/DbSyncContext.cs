@@ -86,7 +86,8 @@ public class DbSyncContext : DbContext
 
     private static string Snake(string s, bool plural)
     {
-        var r = Regex.Replace(s, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant();
+        // "EndpointAValue" -> "endpoint_a_value" (dua aturan: huruf kecil->besar, dan akronim satu huruf sebelum kata)
+        var r = Regex.Replace(Regex.Replace(s, "([a-z0-9])([A-Z])", "$1_$2"), "([A-Z])([A-Z][a-z])", "$1_$2").ToLowerInvariant();
         if (!plural) return r;
         return r switch
         {

@@ -51,10 +51,10 @@ public sealed class CdcOptions
 {
     public const string Section = "Cdc";
     public bool Enabled { get; set; } = false;
-    public string KafkaBootstrap { get; set; } = "localhost:9092";
+    public string KafkaBootstrap { get; set; } = "localhost:19092";
     /// <summary>Alamat Kafka sebagaimana dilihat oleh Kafka Connect (di dalam jaringan Docker).</summary>
-    public string KafkaBootstrapForConnect { get; set; } = "kafka:9092";
-    public string KafkaConnectUrl { get; set; } = "http://localhost:8083";
+    public string KafkaBootstrapForConnect { get; set; } = "kafka:19092";
+    public string KafkaConnectUrl { get; set; } = "http://localhost:18091";
     public string ConsumerGroupId { get; set; } = "dbsync-cdc";
 }
 
