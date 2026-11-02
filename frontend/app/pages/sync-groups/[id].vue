@@ -130,7 +130,8 @@ const locked = computed(() => ['ACTIVE', 'PAUSED'].includes(g.value?.status) && 
               <div class="small text-danger" v-if="i.errorMessage">{{ i.errorMessage }}</div>
             </div>
           </div>
-          <div class="card-body text-muted" v-else>Belum ada job.</div></div>
+          <div class="card-body text-muted" v-else>Belum ada job.</div>
+          <div v-if="prog" class="card-footer help"><i class="bi bi-info-circle me-1"></i><strong>Dibaca</strong>: baris yang dibaca dari database (sinkron dua arah menghitung A + B sekaligus). <strong>Ditulis</strong>: perubahan yang benar-benar diterapkan ke sisi lain. <strong>Dilewati</strong>: sengaja diabaikan (mis. dead letter atau sudah ada di tujuan). <strong>Gagal</strong>: gagal diterapkan — lihat Antrean &amp; Gagal.</div></div>
       </div>
     </div>
 
