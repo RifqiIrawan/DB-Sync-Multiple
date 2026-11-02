@@ -198,7 +198,7 @@ public static class InfrastructureRegistration
         s.Configure<SeedOptions>(cfg.GetSection(SeedOptions.Section));
         s.Configure<CdcOptions>(cfg.GetSection(CdcOptions.Section));
         s.Configure<RetentionOptions>(cfg.GetSection(RetentionOptions.Section));
-        s.AddDbContext<DbSyncContext>(o => o.UseNpgsql(cfg.GetConnectionString("ConfigDb")));
+        s.AddDbContext<DbSyncContext>(o => o.UseNpgsql(cfg.GetConnectionString("ConfigDb"), n => n.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));
         s.AddSingleton<ISecretProtector, AesGcmSecretProtector>();
         s.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         s.AddSingleton<IAuditService, AuditService>();

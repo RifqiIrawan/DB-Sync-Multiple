@@ -58,18 +58,24 @@ public sealed class RunExecutor
             InitialSyncOptions? initial = null;
             if (run.RunType == RunTypes.Initial)
             {
-                char src = 'A'; bool restart = false; HashSet<Guid>? only = null;
+                char src = 'A'; bool restart = false; string mode = "OVERWRITE"; bool merge = false; string policy = "CONFLICT", fallback = "CONFLICT"; HashSet<Guid>? only = null;
                 if (run.Options != null)
                 {
                     var o = run.Options.RootElement;
-                    if (o.TryGetProperty("sourceRole", out var sr) && sr.GetString() is { Length: > 0 } s0) src = char.ToUpperInvariant(s0[0]);
+                    if (o.TryGetProperty("sourceRole", out var sr) && sr.GetString() is { Length: > 0 } s0)
+                    {
+                        if (s0.Equals("BOTH", StringComparison.OrdinalIgnoreCase)) merge = true; else src = char.ToUpperInvariant(s0[0]);
+                    }
                     if (o.TryGetProperty("restart", out var rs) && rs.ValueKind == JsonValueKind.True) restart = true;
+                    if (o.TryGetProperty("differentPolicy", out var dp) && dp.GetString() is "FILL_EMPTY" or "A_WINS" or "B_WINS" or "CONFLICT") policy = dp.GetString()!;
+                    if (o.TryGetProperty("fillFallback", out var ff) && ff.GetString() is "A_WINS" or "B_WINS" or "CONFLICT") fallback = ff.GetString()!;
+                    if (o.TryGetProperty("conflictMode", out var cm) && cm.ValueKind == JsonValueKind.String && cm.GetString() is "SKIP_EXISTING" or "OVERWRITE") mode = cm.GetString()!;
                     if (o.TryGetProperty("tableRuleIds", out var ids) && ids.ValueKind == JsonValueKind.Array)
                         only = ids.EnumerateArray().Select(x => x.GetGuid()).ToHashSet();
                 }
                 else if (group.SyncDirection == Directions.BToA) src = 'B';
                 if (only is { Count: > 0 }) rules = rules.Where(r => only.Contains(r.Id)).ToList();
-                initial = new InitialSyncOptions(src, restart);
+                initial = new InitialSyncOptions(src, restart, mode, merge, policy, fallback);
             }
 
             // konteks seluruh aturan (untuk urutan dependensi FK)

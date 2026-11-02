@@ -123,6 +123,71 @@ public class ValidatorTests
     }
 }
 
+public class CrossTypeTests
+{
+    private static ColumnInfo C(string logical, string native) => new("c", native, logical, true, false, 1);
+
+    [Fact] public void Text_vs_datetime_compare_as_timestamp()
+    {
+        var canon = DBSync.SyncEngine.RuleContextFactory.Canonical(C(LogicalTypes.Text, "varchar(30)"), C(LogicalTypes.Timestamp, "datetime"));
+        Assert.Equal(LogicalTypes.Timestamp, canon);
+        Assert.Equal(Values.Normalize("2023-01-10 00:00:00", canon), Values.Normalize(new DateTime(2023, 1, 10), canon));
+    }
+
+    [Fact] public void Text_vs_number_compare_as_number()
+    {
+        var canon = DBSync.SyncEngine.RuleContextFactory.Canonical(C(LogicalTypes.Text, "varchar(10)"), C(LogicalTypes.Decimal, "decimal(10,2)"));
+        Assert.Equal(Values.Normalize("12.50", canon), Values.Normalize(12.5m, canon));
+    }
+
+    [Theory]
+    [InlineData(LogicalTypes.Integer, LogicalTypes.Decimal, LogicalTypes.Decimal)]
+    [InlineData(LogicalTypes.Date, LogicalTypes.Timestamp, LogicalTypes.Timestamp)]
+    [InlineData(LogicalTypes.Text, LogicalTypes.Text, LogicalTypes.Text)]
+    public void Canonical_types(string a, string b, string expected) =>
+        Assert.Equal(expected, DBSync.SyncEngine.RuleContextFactory.Canonical(C(a, "x"), C(b, "y")));
+}
+
+public class DefaultsTests
+{
+    [Theory]
+    [InlineData("0", "0")] [InlineData("((0))", "0")] [InlineData("'abc'::character varying", "abc")] [InlineData("N'abc'", "abc")]
+    [InlineData("'it''s'", "it's")] [InlineData("-1.5", "-1.5")] [InlineData("true", "true")]
+    public void Parses_simple_literals(string raw, string expected) => Assert.Equal(expected, SqlDefaults.ParseLiteral(raw));
+
+    [Theory]
+    [InlineData(null)] [InlineData("")] [InlineData("NULL")] [InlineData("nextval('seq'::regclass)")] [InlineData("now()")]
+    [InlineData("(getdate())")] [InlineData("CURRENT_TIMESTAMP")] [InlineData("(1)+(2)")]
+    public void Expressions_and_nulls_are_unsupported(string? raw) => Assert.Null(SqlDefaults.ParseLiteral(raw));
+
+    private static TableSchema T(ColumnInfo pk, ColumnInfo col) => new("s", "t", new[] { pk, col }, Array.Empty<ForeignKeyInfo>());
+    private static ColumnInfo Pk => new("id", "int", LogicalTypes.Integer, false, true, 1);
+
+    [Fact] public void Nullable_to_not_null_with_default_is_auto_filled_warning()
+    {
+        var a = T(Pk, new ColumnInfo("v", "int", LogicalTypes.Integer, true, false, 2));
+        var b = T(Pk, new ColumnInfo("v", "int", LogicalTypes.Integer, false, false, 2, DefaultValue: "0"));
+        var rep = RuleValidator.Validate(a, b, ColumnMappingBuilder.AutoMap(a, b));
+        Assert.Contains(rep.Issues, i => i.Code == "NULLABILITY" && i.Message.Contains("diganti default"));
+    }
+
+    [Fact] public void Nullable_to_not_null_without_default_warns_about_failures()
+    {
+        var a = T(Pk, new ColumnInfo("v", "int", LogicalTypes.Integer, true, false, 2));
+        var b = T(Pk, new ColumnInfo("v", "int", LogicalTypes.Integer, false, false, 2));
+        var rep = RuleValidator.Validate(a, b, ColumnMappingBuilder.AutoMap(a, b));
+        Assert.Contains(rep.Issues, i => i.Code == "NULLABILITY" && i.Message.Contains("GAGAL"));
+    }
+
+    [Fact] public void Strict_strategy_disables_auto_fill()
+    {
+        var a = T(Pk, new ColumnInfo("v", "int", LogicalTypes.Integer, true, false, 2));
+        var b = T(Pk, new ColumnInfo("v", "int", LogicalTypes.Integer, false, false, 2, DefaultValue: "0"));
+        var maps = ColumnMappingBuilder.AutoMap(a, b); foreach (var m in maps) m.DataTypeStrategy = "STRICT";
+        Assert.Contains(RuleValidator.Validate(a, b, maps).Issues, i => i.Code == "NULLABILITY" && i.Message.Contains("GAGAL"));
+    }
+}
+
 public class DebeziumTests
 {
     [Fact] public void Parses_update_envelope_with_date_and_timestamp()

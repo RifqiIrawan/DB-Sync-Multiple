@@ -56,6 +56,11 @@ public sealed class RunQueueWorker : BackgroundService
         using var s = _sf.CreateScope();
         var db = s.ServiceProvider.GetRequiredService<DbSyncContext>();
         var hb = await db.WorkerHeartbeats.FindAsync(new object[] { _workerId }, ct);
+        if (hb == null)   // proses baru: buang catatan proses lama pada host yang sama yang sudah tidak berdetak
+        {
+            var cutoff = DateTimeOffset.UtcNow.AddSeconds(-45);
+            await db.WorkerHeartbeats.Where(w => w.Hostname == Environment.MachineName && w.WorkerType == "SYNC" && w.WorkerId != _workerId && w.LastHeartbeatAt < cutoff).ExecuteDeleteAsync(ct);
+        }
         var meta = JsonSerializer.SerializeToDocument(new { runningRuns = _running.Values.ToArray(), maxConcurrentRuns = MaxConcurrentRuns, pid = Environment.ProcessId });
         if (hb == null) db.WorkerHeartbeats.Add(new WorkerHeartbeat { WorkerId = _workerId, WorkerType = "SYNC", Hostname = Environment.MachineName, Metadata = meta });
         else { hb.LastHeartbeatAt = DateTimeOffset.UtcNow; hb.Status = "RUNNING"; hb.Metadata = meta; }

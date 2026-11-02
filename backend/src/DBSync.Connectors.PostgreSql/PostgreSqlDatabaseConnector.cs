@@ -65,7 +65,8 @@ public sealed class PostgreSqlDatabaseConnector : AdoNetConnectorBase
             return new ColumnInfo(r["name"]!.ToString()!, dt == "USER-DEFINED" || dt == "ARRAY" ? udt : dt, MapLogical(dt, udt),
                 r["nullable"]!.ToString() == "YES", (bool)r["pk"]!, Convert.ToInt32(r["ord"]),
                 r["len"] is null ? null : Convert.ToInt32(r["len"]), r["prec"] is null ? null : Convert.ToInt32(r["prec"]), r["scale"] is null ? null : Convert.ToInt32(r["scale"]),
-                r["ident"]!.ToString() == "YES", r["gen"]!.ToString() == "ALWAYS");
+                r["ident"]!.ToString() == "YES", r["gen"]!.ToString() == "ALWAYS", false,
+                def.StartsWith("nextval(", StringComparison.OrdinalIgnoreCase) ? null : SqlDefaults.ParseLiteral(def));
         }).ToList();
 
         var fkRows = await QueryAsync(c, p,

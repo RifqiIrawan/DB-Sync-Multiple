@@ -238,6 +238,11 @@ public sealed class CdcConsumerWorker : BackgroundService
         using var s = _sf.CreateScope();
         var db = s.ServiceProvider.GetRequiredService<DbSyncContext>();
         var hb = await db.WorkerHeartbeats.FindAsync(new object[] { _workerId }, ct);
+        if (hb == null)
+        {
+            var cutoff = DateTimeOffset.UtcNow.AddSeconds(-45);
+            await db.WorkerHeartbeats.Where(w => w.Hostname == Environment.MachineName && w.WorkerType == "CDC" && w.WorkerId != _workerId && w.LastHeartbeatAt < cutoff).ExecuteDeleteAsync(ct);
+        }
         if (hb == null) db.WorkerHeartbeats.Add(new WorkerHeartbeat { WorkerId = _workerId, WorkerType = "CDC", Hostname = Environment.MachineName });
         else { hb.LastHeartbeatAt = DateTimeOffset.UtcNow; hb.Status = "RUNNING"; }
         await db.SaveChangesAsync(ct);

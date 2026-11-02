@@ -31,6 +31,11 @@ public class TableRulesController : ApiBase
             throw new ApiException(409, "RUN_ACTIVE", "Tidak dapat mengubah tabel saat ada run berjalan/antre pada group ini.");
     }
 
+    /// <summary>Mapping/aturan berubah = kondisi berubah: dead letter tabel ini dicoba ulang (error permanen lama mungkin sudah teratasi).</summary>
+    private Task ResetDeadLettersAsync(Guid ruleId, CancellationToken ct) =>
+        _db.SyncEvents.Where(e => e.TableRuleId == ruleId && e.Status == EventStatus.DeadLetter)
+            .ExecuteUpdateAsync(s => s.SetProperty(e => e.Status, EventStatus.Retry).SetProperty(e => e.RetryCount, 0).SetProperty(e => e.NextRetryAt, (DateTimeOffset?)null), ct);
+
     [HttpPut("{id:guid}"), Authorize(Policy = Policies.Manage)]
     public async Task<IActionResult> Update(Guid id, UpdateRuleRequest u, CancellationToken ct)
     {
@@ -105,6 +110,7 @@ public class TableRulesController : ApiBase
             _db.SyncColumnMappings.Add(new SyncColumnMapping { TableRuleId = id, EndpointAColumn = i.EndpointAColumn, EndpointBColumn = i.EndpointBColumn, IsPrimaryKey = i.IsPrimaryKey, IsEnabled = i.IsEnabled, DataTypeStrategy = i.DataTypeStrategy });
         r.ValidationStatus = "UNVALIDATED"; r.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await ResetDeadLettersAsync(id, ct);
         await Log("UPDATE_COLUMN_MAPPING", "SyncTableRule", id.ToString(), null, new { count = items.Count });
         return Success(null, "Mapping kolom disimpan; jalankan validasi.");
     }

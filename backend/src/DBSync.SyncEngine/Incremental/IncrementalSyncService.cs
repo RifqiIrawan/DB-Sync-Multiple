@@ -48,6 +48,7 @@ public sealed class IncrementalSyncService
         var open = await _db.SyncEvents.Where(e => e.TableRuleId == rule.Id && (e.Status == EventStatus.Retry || e.Status == EventStatus.DeadLetter))
             .ToListAsync(ct);
         var openByPk = open.GroupBy(e => e.PkKey).ToDictionary(g => g.Key, g => g.OrderByDescending(e => e.CreatedAt).First());
+        var openAll = open.ToLookup(e => e.PkKey);
         var pendingConflicts = await _db.SyncConflicts.Where(c => c.TableRuleId == rule.Id && c.Status == "PENDING").ToListAsync(ct);
         var conflictByPk = pendingConflicts.ToDictionary(c => c.PkKey);
 
@@ -62,6 +63,12 @@ public sealed class IncrementalSyncService
             var baseH = baseRaw == RowStateStore.Deleted ? null : baseRaw;
             var ha = a?.Hash; var hb = b?.Hash;
 
+            // baris sudah identik di kedua sisi (mis. penyebab error sudah diperbaiki) -> event gagal lama dianggap selesai
+            if (ha == hb && openAll.Contains(pk))
+            {
+                foreach (var stale in openAll[pk]) { stale.Status = EventStatus.Skipped; stale.ErrorMessage = "Sudah sinkron (diselesaikan otomatis)"; stale.NextRetryAt = null; stale.ProcessedAt = DateTimeOffset.UtcNow; }
+                openByPk.Remove(pk);
+            }
             if (openByPk.TryGetValue(pk, out var oev) && (oev.Status == EventStatus.DeadLetter || (oev.NextRetryAt != null && oev.NextRetryAt > now)))
             { res.Skipped++; continue; }
 

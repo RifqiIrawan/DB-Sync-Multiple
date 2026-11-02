@@ -84,8 +84,15 @@ public static class RuleValidator
                 Warn("LENGTH_TRUNCATION", $"{ca.Name}: panjang A ({ca.MaxLength}) > B ({cb.MaxLength}).", ca.Name);
             if (ca.IsUnsigned && cb.LogicalType == LogicalTypes.Integer)
                 Warn("UNSIGNED", $"{ca.Name}: unsigned integer pada A dapat melebihi rentang B.", ca.Name);
-            if (ca.IsNullable && !cb.IsNullable)
-                Warn("NULLABILITY", $"{ca.Name}: nullable di A tetapi NOT NULL di B.", ca.Name);
+            if (ca.IsNullable != cb.IsNullable)
+            {
+                var nn = ca.IsNullable ? cb : ca; var side = ca.IsNullable ? "B" : "A"; var nul = ca.IsNullable ? "A" : "B";
+                bool strict = string.Equals(m.DataTypeStrategy, "STRICT", StringComparison.OrdinalIgnoreCase);
+                if (nn.DefaultValue != null && !strict && !m.IsPrimaryKey)
+                    Warn("NULLABILITY", $"{ca.Name}: nullable di {nul} tetapi wajib diisi di {side}. Nilai NULL akan otomatis diganti default {side} ('{nn.DefaultValue}') saat disalin.", ca.Name);
+                else
+                    Warn("NULLABILITY", $"{ca.Name}: nullable di {nul} tetapi NOT NULL di {side} tanpa default" + (strict ? " (mode ketat)" : "") + $". Baris yang berisi NULL akan GAGAL disalin ke {side}: isi nilainya di sumber, jadikan kolom {side} nullable, atau beri DEFAULT.", ca.Name);
+            }
             if (ca.IsGenerated || cb.IsGenerated)
                 Warn("GENERATED_COLUMN", $"{ca.Name}: kolom generated/computed tidak akan ditulis ke sisi yang mengelolanya sendiri.", ca.Name);
             if ((ca.LogicalType == LogicalTypes.Timestamp || ca.LogicalType == LogicalTypes.TimestampTz) && ca.LogicalType != cb.LogicalType)

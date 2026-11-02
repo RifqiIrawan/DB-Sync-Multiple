@@ -14,11 +14,21 @@ async function resolve(winner: 'A' | 'B') {
   if (!(await confirm.ask(`Pilih versi Endpoint ${winner}?`, `Versi ${winner} akan disebarkan ke Endpoint ${lose}.${delTxt}`, !!delTxt))) return
   await api.post(`/monitoring/conflicts/${c.id}/resolve`, { winner }); toast.success('Konflik diselesaikan'); open.value = null; await load()
 }
+async function resolveAll(winner: 'A' | 'B') {
+  const n = list.value.total
+  if (!(await confirm.ask(`Selesaikan ${n} konflik dengan data ${winner}?`, `Semua konflik berstatus menunggu akan memakai versi ${winner} dan disebarkan ke sisi lain. Versi lawan akan ditimpa (jika versi ${winner} sudah tidak ada, baris di sisi lain dihapus). Tindakan ini tidak bisa dibatalkan.`, true))) return
+  const r = await api.post('/monitoring/conflicts/resolve-all', { winner })
+  toast.success(`${r.resolved} konflik diselesaikan`, r.failed ? `${r.failed} gagal: ${(r.errors ?? []).join('; ')}` : undefined); await load()
+}
 const fmt = (v: any) => v === null || v === undefined ? '∅' : typeof v === 'object' ? JSON.stringify(v) : String(v)
 </script>
 <template>
   <div>
     <CommonPageHeader title="Konflik" icon="exclamation-diamond" subtitle="Perubahan bersamaan pada kedua endpoint. Pilih versi pemenang untuk disebarkan.">
+      <template v-if="status === 'PENDING' && list.total > 1 && auth.canOperate.value">
+        <button class="btn btn-sm btn-outline-primary" @click="resolveAll('A')"><i class="bi bi-check2-all"></i> Pakai A untuk semua ({{ list.total }})</button>
+        <button class="btn btn-sm btn-outline-primary" @click="resolveAll('B')"><i class="bi bi-check2-all"></i> Pakai B untuk semua</button>
+      </template>
       <select v-model="status" class="form-select form-select-sm" style="width: 160px"><option value="PENDING">Menunggu</option><option value="RESOLVED">Selesai</option></select>
     </CommonPageHeader>
     <div class="card"><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0">

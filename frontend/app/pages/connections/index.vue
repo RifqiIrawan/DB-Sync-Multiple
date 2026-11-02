@@ -112,8 +112,8 @@ async function remove(c: any) {
             <td class="text-end text-nowrap">
               <button v-if="auth.canOperate.value" class="btn btn-sm btn-outline-primary me-1" @click="testRow(c)"><i class="bi bi-plug"></i> Test</button>
               <template v-if="auth.canManage.value">
-                <button class="btn btn-sm btn-outline-secondary me-1" title="Edit" @click="openEdit(c)"><i class="bi bi-pencil"></i></button>
-                <button class="btn btn-sm btn-outline-danger" title="Hapus" @click="remove(c)"><i class="bi bi-trash"></i></button>
+                <button class="btn btn-sm btn-outline-secondary me-1" title="Edit" aria-label="Edit" @click="openEdit(c)"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" title="Hapus" aria-label="Hapus" @click="remove(c)"><i class="bi bi-trash"></i></button>
               </template>
             </td>
           </tr>
@@ -136,7 +136,7 @@ async function remove(c: any) {
           <div class="col-md-3"><label class="form-label">Port</label><input v-model.number="form.port" type="number" class="form-control" required></div>
           <div class="col-md-6"><label class="form-label">Username</label><input v-model="form.username" class="form-control" required autocomplete="off"></div>
           <div class="col-md-6"><label class="form-label">Password <span v-if="form.id" class="text-muted fw-normal">(kosong = tidak diubah)</span></label>
-            <input v-model="form.password" type="password" class="form-control" :disabled="form.clearPassword" :placeholder="form.id ? '••••••••' : 'kosongkan jika server tanpa password'" autocomplete="new-password">
+            <input v-model="form.password" type="password" class="form-control" :disabled="form.clearPassword" :placeholder="form.id ? '••••••••' : 'kosong jika tanpa password'" autocomplete="new-password">
             <div v-if="form.id" class="form-check mt-1"><input id="clrpw" v-model="form.clearPassword" type="checkbox" class="form-check-input" @change="form.password = ''"><label for="clrpw" class="form-check-label help">Setel password menjadi kosong</label></div></div>
 
           <div class="col-12">

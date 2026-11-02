@@ -53,8 +53,9 @@ public sealed class SqlServerDatabaseConnector : AdoNetConnectorBase
         var cols = await QueryAsync(c, p,
             @"SELECT c.name AS name, t.name AS tn, c.is_nullable AS nullable, c.is_identity AS ident, c.is_computed AS comp,
                      c.max_length AS len, c.precision AS prec, c.scale AS scale, c.column_id AS ord,
-                     CASE WHEN pk.column_id IS NULL THEN 0 ELSE 1 END AS pk
+                     CASE WHEN pk.column_id IS NULL THEN 0 ELSE 1 END AS pk, dc.definition AS def
               FROM sys.columns c
+              LEFT JOIN sys.default_constraints dc ON dc.parent_object_id=c.object_id AND dc.parent_column_id=c.column_id
               JOIN sys.types t ON t.user_type_id=c.user_type_id
               JOIN sys.tables tb ON tb.object_id=c.object_id
               JOIN sys.schemas s ON s.schema_id=tb.schema_id
@@ -71,7 +72,7 @@ public sealed class SqlServerDatabaseConnector : AdoNetConnectorBase
             if (tn.StartsWith("n") && tn is "nvarchar" or "nchar" && len > 0) len /= 2;
             return new ColumnInfo(r["name"]!.ToString()!, tn, MapLogical(tn), Convert.ToBoolean(r["nullable"]), Convert.ToInt32(r["pk"]) == 1,
                 Convert.ToInt32(r["ord"]), len, Convert.ToInt32(r["prec"]), Convert.ToInt32(r["scale"]),
-                Convert.ToBoolean(r["ident"]), Convert.ToBoolean(r["comp"]) || tn is "timestamp" or "rowversion");
+                Convert.ToBoolean(r["ident"]), Convert.ToBoolean(r["comp"]) || tn is "timestamp" or "rowversion", false, SqlDefaults.ParseLiteral(r["def"]?.ToString()));
         }).ToList();
 
         var fkRows = await QueryAsync(c, p,
@@ -183,8 +184,17 @@ public sealed class SqlServerDatabaseConnector : AdoNetConnectorBase
             await using var c = await OpenAsync(p, ct);
             var dbCdc = await ScalarAsync(c, p, "SELECT is_cdc_enabled FROM sys.databases WHERE name = DB_NAME()", ct);
             res.Add(new("database_cdc", Convert.ToBoolean(dbCdc ?? false), "Jalankan EXEC sys.sp_cdc_enable_db"));
-            var agent = await QueryAsync(c, p, "SELECT status_desc FROM sys.dm_server_services WHERE servicename LIKE 'SQL Server Agent%'", ct);
-            res.Add(new("sql_server_agent", agent.Count > 0 && agent[0]["status_desc"]?.ToString() == "Running", "SQL Server Agent harus Running untuk capture job"));
+            // sys.dm_server_services butuh izin tingkat server (VIEW SERVER PERFORMANCE STATE). User DBSync berhak minimum
+            // tidak punya izin itu: jangan gagalkan semua pemeriksaan, cukup tandai "tidak dapat dipastikan".
+            try
+            {
+                var agent = await QueryAsync(c, p, "SELECT status_desc FROM sys.dm_server_services WHERE servicename LIKE 'SQL Server Agent%'", ct);
+                res.Add(new("sql_server_agent", agent.Count > 0 && agent[0]["status_desc"]?.ToString() == "Running", "SQL Server Agent harus Running untuk capture job"));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                res.Add(new("sql_server_agent", true, "Tidak dapat dipastikan dengan izin user ini (butuh VIEW SERVER PERFORMANCE STATE). Pastikan SQL Server Agent berjalan; tanpanya capture job CDC tidak berjalan."));
+            }
             foreach (var (s, t) in tables)
             {
                 var en = await QueryAsync(c, p, "SELECT is_tracked_by_cdc FROM sys.tables tb JOIN sys.schemas sc ON sc.schema_id=tb.schema_id WHERE sc.name=@s AND tb.name=@t", ct, ("s", s), ("t", t));

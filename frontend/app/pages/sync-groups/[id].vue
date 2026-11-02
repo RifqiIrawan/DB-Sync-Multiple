@@ -2,6 +2,7 @@
 const route = useRoute(); const id = route.params.id as string
 const api = useApi(); const auth = useAuth(); const toast = useToast(); const confirm = useConfirm()
 const g = ref<any>(null); const st = ref<any>(null); const prog = ref<any>(null); const cdc = ref<any>(null); const rules = ref<any[]>([])
+let firstLoad = true
 const tab = ref('overview'); const report = ref<any>(null); const busy = ref(false)
 const edit = ref<any>(null)
 
@@ -10,6 +11,8 @@ async function load() {
   st.value = await api.get(`/sync-groups/${id}/status`, undefined, true)
   prog.value = await api.get(`/sync-groups/${id}/progress`, undefined, true)
   rules.value = await api.get(`/sync-groups/${id}/table-rules`)
+  // grup baru yang belum punya tabel: langsung tampilkan tab Tabel (langkah berikutnya yang jelas)
+  if (firstLoad) { firstLoad = false; if (!rules.value.length && g.value.status !== 'ACTIVE') tab.value = 'tables' }
   if (!edit.value) edit.value = { groupName: g.value.groupName, description: g.value.description, syncDirection: g.value.syncDirection, syncMode: g.value.syncMode, conflictStrategy: g.value.conflictStrategy,
     endpointAConnectionId: g.value.endpointA.connectionId, endpointBConnectionId: g.value.endpointB.connectionId, scheduleIntervalSeconds: g.value.scheduleIntervalSeconds, batchSize: g.value.batchSize, maxRetries: g.value.maxRetries, maxParallelTables: g.value.maxParallelTables, commandTimeoutSeconds: g.value.commandTimeoutSeconds }
 }
@@ -22,16 +25,6 @@ async function act(path: string, label: string, danger = false, msg = '') {
   if (danger && !(await confirm.ask(label + '?', msg, true))) return
   busy.value = true
   try { const r = await api.post(`/sync-groups/${id}/${path}`); toast.success(label + ' berhasil'); await load(); return r } catch { /* toast */ } finally { busy.value = false }
-}
-const initOpts = ref({ sourceRole: 'A', restart: false, selected: [] as string[] })
-async function startInitial() {
-  const needs = rules.value.filter(r => r.isEnabled && (initOpts.value.selected.length === 0 || initOpts.value.selected.includes(r.id)))
-  if (!(await confirm.ask('Jalankan Initial Sync?', `Menyalin baseline ${needs.length} tabel dari Endpoint ${initOpts.value.sourceRole} ke ${initOpts.value.sourceRole === 'A' ? 'B' : 'A'} (mode UPSERT; tidak ada penghapusan data tujuan).${initOpts.value.restart ? '\nMulai ULANG dari awal (checkpoint diabaikan).' : ''}`))) return
-  busy.value = true
-  try {
-    await api.post(`/sync-groups/${id}/initial-sync`, { sourceRole: initOpts.value.sourceRole, restart: initOpts.value.restart, tableRuleIds: initOpts.value.selected.length ? initOpts.value.selected : null })
-    toast.info('Initial sync diantrekan'); tab.value = 'jobs'; await load()
-  } finally { busy.value = false }
 }
 async function validate() { busy.value = true; try { report.value = await api.post(`/sync-groups/${id}/validate`) } finally { busy.value = false } }
 async function cancelRun() { if (prog.value && await confirm.ask('Batalkan job?', '', true)) { await api.post(`/sync-runs/${prog.value.id}/cancel`); await load() } }
@@ -113,26 +106,18 @@ const locked = computed(() => ['ACTIVE', 'PAUSED'].includes(g.value?.status) && 
     </div>
 
     <!-- TABLES -->
-    <SynchronizationTableSelector v-if="tab === 'tables'" :group-id="id" :locked="g.status === 'ACTIVE' && active" @changed="load" />
+    <SynchronizationTableSelector v-if="tab === 'tables'" :group-id="id" :group-direction="g.syncDirection" :locked="g.status === 'ACTIVE' && active" @changed="load" @next="tab = $event" />
 
     <!-- JOBS -->
     <div v-if="tab === 'jobs'" class="row g-3">
-      <div class="col-lg-5" v-if="auth.canOperate.value">
-        <div class="card mb-3"><div class="card-header">Initial Sync</div><div class="card-body">
-          <p class="small text-muted">Memindahkan baseline data awal. Hanya tabel terpilih. Dapat dilanjutkan dari checkpoint bila worker restart.</p>
-          <div class="mb-2"><label class="form-label">Sumber data</label>
-            <select v-model="initOpts.sourceRole" class="form-select form-select-sm"><option value="A">Endpoint A → B</option><option value="B">Endpoint B → A</option></select></div>
-          <div class="mb-2"><label class="form-label">Tabel (kosong = semua tabel terpilih)</label>
-            <select v-model="initOpts.selected" multiple class="form-select form-select-sm" size="5"><option v-for="r in rules" :key="r.id" :value="r.id">{{ r.endpointATable }} — {{ r.initialSyncStatus }}</option></select></div>
-          <div class="form-check mb-3"><input id="rs" v-model="initOpts.restart" class="form-check-input" type="checkbox"><label for="rs" class="form-check-label">Mulai ulang dari awal (abaikan checkpoint)</label></div>
-          <button class="btn btn-primary w-100" :disabled="busy || active" @click="startInitial"><i class="bi bi-cloud-arrow-up"></i> Jalankan Initial Sync</button>
-        </div></div>
+      <div class="col-xl-6" v-if="auth.canOperate.value">
+        <SynchronizationInitialSyncPanel :group-id="id" :group-direction="g.syncDirection" :rules="rules" :disabled="busy || active" @started="tab = 'jobs'; load()" />
         <div class="card"><div class="card-header">Sinkronisasi manual</div><div class="card-body">
           <p class="small text-muted">Jalankan satu siklus incremental sekarang (mendeteksi INSERT/UPDATE/DELETE dan konflik).</p>
           <button class="btn btn-outline-primary w-100" :disabled="busy || active || g.status === 'STOPPED'" @click="act('sync-now', 'Sync now')"><i class="bi bi-arrow-repeat"></i> Sync Now</button>
         </div></div>
       </div>
-      <div :class="auth.canOperate.value ? 'col-lg-7' : 'col-12'">
+      <div :class="auth.canOperate.value ? 'col-xl-6' : 'col-12'">
         <div class="card"><div class="card-header d-flex justify-content-between">Progress<button v-if="active && auth.canOperate.value" class="btn btn-sm btn-outline-danger" @click="cancelRun">Batalkan</button></div>
           <div class="card-body" v-if="prog">
             <div class="mb-2"><CommonStatusBadge :status="prog.status" /> <span class="badge text-bg-light border">{{ prog.runType }}</span> <span class="small text-muted">{{ fmtDate(prog.startedAt ?? prog.queuedAt) }} · {{ fmtDuration(prog.startedAt, prog.finishedAt) }}</span></div>

@@ -34,7 +34,7 @@ async function save() {
       <button v-if="auth.canManage.value" class="btn btn-primary" :disabled="saving" @click="save">Simpan & validasi</button>
     </CommonPageHeader>
     <div class="card mb-3"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
-      <thead><tr><th style="width: 70px">Aktif</th><th>Kolom A</th><th>Tipe A</th><th>⇄</th><th>Kolom B</th><th>Tipe B</th><th class="text-center">PK</th><th></th></tr></thead>
+      <thead><tr><th style="width: 70px">Aktif</th><th>Kolom A</th><th>Tipe A</th><th>⇄</th><th>Kolom B</th><th>Tipe B</th><th class="text-center">PK</th><th title="Bila di sumber NULL tetapi di tujuan wajib diisi (NOT NULL)">Jika NULL</th><th></th></tr></thead>
       <tbody>
         <tr v-for="(r, i) in rows" :key="i" :class="{ 'text-muted': !r.isEnabled }">
           <td><input v-model="r.isEnabled" type="checkbox" class="form-check-input" :disabled="!auth.canManage.value"></td>
@@ -42,6 +42,7 @@ async function save() {
           <td><select v-model="r.endpointBColumn" class="form-select form-select-sm" style="max-width: 220px" :disabled="!auth.canManage.value"><option value=""></option><option v-for="c in colB" :key="c.name" :value="c.name">{{ c.name }}</option></select></td>
           <td class="small">{{ r.endpointBColumn ? typeOf('B', r.endpointBColumn) : '' }}</td>
           <td class="text-center"><input v-model="r.isPrimaryKey" type="checkbox" class="form-check-input" :disabled="!auth.canManage.value"></td>
+          <td><select v-model="r.dataTypeStrategy" class="form-select form-select-sm" style="width: 190px" :disabled="!auth.canManage.value || r.isPrimaryKey"><option :value="null">Otomatis: isi default tujuan</option><option value="STRICT">Ketat: gagalkan baris</option></select></td>
           <td><button v-if="auth.canManage.value" class="btn btn-sm btn-link text-danger" @click="rows.splice(i, 1)">hapus</button></td>
         </tr>
       </tbody></table></div>

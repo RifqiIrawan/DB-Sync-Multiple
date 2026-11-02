@@ -139,7 +139,7 @@ public class ConnectionsController : ApiBase
         }
         if (errs.Count > 0) throw new ApiException(400, "Validation failed", errs);
 
-        var profile = _profiles.FromRaw(r.DbType.ToUpperInvariant(), r.Host.Trim(), r.Port, "", r.Username, password ?? "", r.SslEnabled, r.ConnectionOptions);
+        var profile = _profiles.FromRaw(r.DbType!.ToUpperInvariant(), r.Host!.Trim(), r.Port, "", r.Username, password ?? "", r.SslEnabled, r.ConnectionOptions);
         try { return Success(await _registry.Get(profile.DbType).ListDatabasesAsync(profile, ct)); }
         catch (ConnectorException ex) { throw new ApiException(422, "Tidak dapat membaca daftar database", new() { new(ex.Code, null, ex.Message) }); }
     }

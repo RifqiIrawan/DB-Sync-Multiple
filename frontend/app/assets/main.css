@@ -109,7 +109,7 @@ kbd { background: var(--card-2); border: 1px solid var(--line); border-bottom-wi
 .stat { font-family: var(--font-display); font-size: 2.1rem; font-weight: 700; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .stat-label { color: var(--muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .09em; font-weight: 600; margin-top: .45rem; }
 .kpi { position: relative; overflow: hidden; }
-.kpi .kpi-ico { position: absolute; right: 1rem; top: 1rem; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-size: 1.2rem; }
+.kpi .kpi-ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 1.05rem; margin-bottom: .85rem; }
 .kpi::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--kc, var(--line)); opacity: .9; }
 .tone-ok { --kc: var(--ok); } .tone-warn { --kc: var(--warn); } .tone-bad { --kc: var(--bad); } .tone-a { --kc: var(--a); } .tone-lime { --kc: var(--lime); } .tone-b { --kc: var(--b); }
 .tone-ok .kpi-ico { background: var(--ok-soft); color: var(--ok); } .tone-warn .kpi-ico { background: var(--warn-soft); color: var(--warn); }
@@ -241,6 +241,8 @@ pre.json { background: #0b0e14; color: #d8deea; padding: .9rem; border-radius: 1
 .orbit { display: flex; align-items: center; gap: 1rem; margin-top: 2rem; }
 .orbit .db { padding: .8rem 1.1rem; border-radius: 14px; background: rgba(255, 255, 255, .07); border: 1px solid rgba(255, 255, 255, .14); font-weight: 650; backdrop-filter: blur(6px); }
 .orbit svg { width: 120px; height: 30px; overflow: visible; } .orbit .rail { stroke: rgba(255, 255, 255, .2); stroke-width: 2; fill: none; } .orbit .packet { stroke: var(--lime); stroke-width: 3; fill: none; stroke-dasharray: 4 14; stroke-linecap: round; animation: dash 1s linear infinite; }
+/* anak grid/flex boleh menyusut (mencegah isi seperti tabel melebarkan kolom & meluber) */
+.d-grid > *, .row > *, .card-body > * { min-width: 0; }
 .rise > * { opacity: 0; animation: rise .5s cubic-bezier(.2, .8, .2, 1) forwards; }
 .rise > *:nth-child(1) { animation-delay: .02s } .rise > *:nth-child(2) { animation-delay: .07s } .rise > *:nth-child(3) { animation-delay: .12s } .rise > *:nth-child(4) { animation-delay: .17s }
 .rise > *:nth-child(5) { animation-delay: .22s } .rise > *:nth-child(6) { animation-delay: .27s } .rise > *:nth-child(7) { animation-delay: .32s } .rise > *:nth-child(8) { animation-delay: .37s } .rise > *:nth-child(n+9) { animation-delay: .42s }

@@ -8,13 +8,57 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DBSync.API.Controllers;
 
-public record InitialSyncRequest(Guid[]? TableRuleIds, string? SourceRole, bool? Restart);
+public record InitialSyncRequest(Guid[]? TableRuleIds, string? SourceRole, bool? Restart, string? ConflictMode, string? DifferentPolicy = null, string? FillFallback = null);
+public record CompareRequest(Guid TableRuleId, string Kind, int? Limit);
+public record InitialPreviewRequest(Guid[]? TableRuleIds, string? SourceRole);
 
 [Route("api/v1")]
 public class SyncController : ApiBase
 {
     private readonly DbSyncContext _db;
-    public SyncController(DbSyncContext db) => _db = db;
+    private readonly DBSync.SyncEngine.IRuleContextFactory _factory;
+    private readonly DBSync.SyncEngine.InitialSync.InitialSyncService _initial;
+    public SyncController(DbSyncContext db, DBSync.SyncEngine.IRuleContextFactory factory, DBSync.SyncEngine.InitialSync.InitialSyncService initial)
+    { _db = db; _factory = factory; _initial = initial; }
+
+    /// <summary>Periksa (TANPA menulis) apa yang akan terjadi bila initial sync dijalankan: baris baru, identik, dan bentrok (PK sama, isi berbeda).</summary>
+    /// <summary>Cek data (read-only): daftar baris yang belum ada di satu sisi (ONLY_A / ONLY_B) atau tidak sama (DIFFERENT, per kolom).</summary>
+    [HttpPost("sync-groups/{id:guid}/compare"), Authorize(Policy = Policies.Operate)]
+    public async Task<IActionResult> Compare(Guid id, CompareRequest req, CancellationToken ct)
+    {
+        if (!await _db.SyncTableRules.AnyAsync(r => r.Id == req.TableRuleId && r.SyncGroupId == id, ct)) throw new KeyNotFoundException("Tabel tidak ditemukan pada grup ini.");
+        var ctx = await _factory.CreateAsync(req.TableRuleId, ct);
+        return Success(await _initial.CompareDetailAsync(ctx, (req.Kind ?? "").ToUpperInvariant(), req.Limit ?? 50, ct));
+    }
+
+    [HttpPost("sync-groups/{id:guid}/initial-sync/preview"), Authorize(Policy = Policies.Operate)]
+    public async Task<IActionResult> InitialPreview(Guid id, InitialPreviewRequest? req, CancellationToken ct)
+    {
+        req ??= new(null, null);
+        var srcName = (req.SourceRole ?? "A").ToUpperInvariant();
+        char src = srcName == "BOTH" ? 'A' : srcName[0];   // pratinjau gabungan dua arah memakai perbandingan simetris
+        if (src is not ('A' or 'B')) throw new ApiException(400, "INVALID", "sourceRole harus A atau B.", "sourceRole");
+        var rules = await _db.SyncTableRules.AsNoTracking()
+            .Where(r => r.SyncGroupId == id && r.IsEnabled && (req.TableRuleIds == null || req.TableRuleIds.Length == 0 || req.TableRuleIds.Contains(r.Id)))
+            .OrderBy(r => r.EndpointATable).ToListAsync(ct);
+        if (rules.Count == 0) throw new ApiException(400, "NO_TABLES", "Belum ada tabel terpilih.");
+        var list = new List<object>();
+        foreach (var rule in rules)
+        {
+            try
+            {
+                var ctx = await _factory.CreateAsync(rule.Id, ct);
+                var p = await _initial.PreviewAsync(ctx, src, ct);
+                list.Add(new { ruleId = rule.Id, table = rule.EndpointATable, p.SourceRows, p.TargetRows, p.OnlyInSource, p.OnlyInTarget, p.Identical, p.Different, p.Fillable, error = (string?)null });
+            }
+            catch (Exception ex) when (ex is DBSync.Connectors.Abstractions.ConnectorException or KeyNotFoundException)
+            {
+                list.Add(new { ruleId = rule.Id, table = rule.EndpointATable, SourceRows = 0L, TargetRows = 0L, OnlyInSource = 0L, OnlyInTarget = 0L, Identical = 0L, Different = 0L, Fillable = (long?)null, error = (string?)ex.Message });
+            }
+        }
+        var g = await _db.SyncGroups.AsNoTracking().FirstAsync(x => x.Id == id, ct);
+        return Success(new { sourceRole = src.ToString(), groupDirection = g.SyncDirection, tables = list, recommendedMode = g.SyncDirection == Directions.Bidirectional ? "SKIP_EXISTING" : "OVERWRITE" });
+    }
 
     private async Task<SyncRun> EnqueueAsync(Guid groupId, string type, object? options, CancellationToken ct)
     {
@@ -32,8 +76,8 @@ public class SyncController : ApiBase
     [HttpPost("sync-groups/{id:guid}/initial-sync"), Authorize(Policy = Policies.Operate)]
     public async Task<IActionResult> Initial(Guid id, InitialSyncRequest? req, CancellationToken ct)
     {
-        req ??= new(null, null, null);
-        if (req.SourceRole is not (null or "A" or "B")) throw new ApiException(400, "INVALID", "sourceRole harus A atau B.", "sourceRole");
+        req ??= new(null, null, null, null);
+        if (req.SourceRole is not (null or "A" or "B" or "BOTH")) throw new ApiException(400, "INVALID", "sourceRole harus A, B, atau BOTH (gabungkan dua arah).", "sourceRole");
         if (req.TableRuleIds is { Length: > 0 })
         {
             var valid = await _db.SyncTableRules.CountAsync(r => r.SyncGroupId == id && req.TableRuleIds.Contains(r.Id) && r.IsEnabled, ct);
@@ -42,7 +86,15 @@ public class SyncController : ApiBase
         // hanya tabel valid
         var invalid = await _db.SyncTableRules.Where(r => r.SyncGroupId == id && r.IsEnabled && r.ValidationStatus == "INVALID" && (req.TableRuleIds == null || req.TableRuleIds.Length == 0 || req.TableRuleIds.Contains(r.Id))).Select(r => r.EndpointATable).ToListAsync(ct);
         if (invalid.Count > 0) throw new ApiException(422, "TABLE_INVALID", "Tabel berstatus INVALID tidak dapat di-initial-sync: " + string.Join(", ", invalid));
-        var run = await EnqueueAsync(id, RunTypes.Initial, new { tableRuleIds = req.TableRuleIds, sourceRole = req.SourceRole ?? "A", restart = req.Restart ?? false }, ct);
+        if (req.DifferentPolicy is not (null or "CONFLICT" or "FILL_EMPTY" or "A_WINS" or "B_WINS")) throw new ApiException(400, "INVALID", "differentPolicy tidak valid.", "differentPolicy");
+        if (req.FillFallback is not (null or "CONFLICT" or "A_WINS" or "B_WINS")) throw new ApiException(400, "INVALID", "fillFallback tidak valid.", "fillFallback");
+        if (req.ConflictMode is not (null or "OVERWRITE" or "SKIP_EXISTING")) throw new ApiException(400, "INVALID", "conflictMode harus OVERWRITE atau SKIP_EXISTING.", "conflictMode");
+        // default aman: pada grup dua arah jangan menimpa data tujuan yang sudah ada tanpa persetujuan eksplisit
+        var grp = await _db.SyncGroups.AsNoTracking().FirstAsync(x => x.Id == id, ct);
+        if (req.SourceRole == "BOTH" && grp.SyncDirection != Directions.Bidirectional)
+            throw new ApiException(400, "NOT_BIDIRECTIONAL", "Gabungkan dua arah hanya untuk grup berarah dua arah (BIDIRECTIONAL).", "sourceRole");
+        var mode = req.ConflictMode ?? (grp.SyncDirection == Directions.Bidirectional ? "SKIP_EXISTING" : "OVERWRITE");
+        var run = await EnqueueAsync(id, RunTypes.Initial, new { tableRuleIds = req.TableRuleIds, sourceRole = req.SourceRole ?? "A", restart = req.Restart ?? false, conflictMode = mode, differentPolicy = req.DifferentPolicy ?? "CONFLICT", fillFallback = req.FillFallback ?? "CONFLICT" }, ct);
         await Log("INITIAL_SYNC", "SyncGroup", id.ToString(), null, req);
         return Accepted202(new { runId = run.Id, jobId = run.Id, status = run.Status });
     }

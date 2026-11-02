@@ -57,14 +57,14 @@ const dirLabel = (d: string) => d === 'A_TO_B' ? 'A → B' : d === 'B_TO_A' ? 'B
           <div class="d-flex gap-2 mt-auto pt-1 flex-wrap">
             <NuxtLink :to="`/sync-groups/${g.id}`" class="btn btn-sm btn-primary flex-grow-1">Buka <i class="bi bi-arrow-right"></i></NuxtLink>
             <template v-if="auth.canOperate.value">
-              <button v-if="g.status === 'ACTIVE'" class="btn btn-sm btn-outline-secondary" title="Sinkronkan sekarang" @click="syncNow(g)"><i class="bi bi-arrow-repeat"></i></button>
-              <button v-if="g.status === 'ACTIVE'" class="btn btn-sm btn-outline-warning" title="Jeda" @click="act(g, 'pause', 'Jeda')"><i class="bi bi-pause-fill"></i></button>
-              <button v-if="g.status === 'PAUSED'" class="btn btn-sm btn-outline-success" title="Lanjutkan" @click="act(g, 'resume', 'Lanjutkan')"><i class="bi bi-play-fill"></i></button>
+              <button v-if="g.status === 'ACTIVE'" class="btn btn-sm btn-outline-secondary" title="Sinkronkan sekarang" aria-label="Sinkronkan sekarang" @click="syncNow(g)"><i class="bi bi-arrow-repeat"></i></button>
+              <button v-if="g.status === 'ACTIVE'" class="btn btn-sm btn-outline-warning" title="Jeda" aria-label="Jeda" @click="act(g, 'pause', 'Jeda')"><i class="bi bi-pause-fill"></i></button>
+              <button v-if="g.status === 'PAUSED'" class="btn btn-sm btn-outline-success" title="Lanjutkan" aria-label="Lanjutkan" @click="act(g, 'resume', 'Lanjutkan')"><i class="bi bi-play-fill"></i></button>
             </template>
             <template v-if="auth.canManage.value">
               <button v-if="['DRAFT', 'ERROR', 'STOPPED'].includes(g.status)" class="btn btn-sm btn-outline-success" @click="act(g, 'activate', 'Aktivasi')">Aktifkan</button>
-              <button v-if="['ACTIVE', 'PAUSED', 'ERROR'].includes(g.status)" class="btn btn-sm btn-outline-secondary" title="Hentikan" @click="act(g, 'stop', 'Hentikan')"><i class="bi bi-stop-fill"></i></button>
-              <button v-if="!['ACTIVE', 'PAUSED'].includes(g.status)" class="btn btn-sm btn-outline-danger" title="Hapus" @click="remove(g)"><i class="bi bi-trash"></i></button>
+              <button v-if="['ACTIVE', 'PAUSED', 'ERROR'].includes(g.status)" class="btn btn-sm btn-outline-secondary" title="Hentikan" aria-label="Hentikan" @click="act(g, 'stop', 'Hentikan')"><i class="bi bi-stop-fill"></i></button>
+              <button v-if="!['ACTIVE', 'PAUSED'].includes(g.status)" class="btn btn-sm btn-outline-danger" title="Hapus" aria-label="Hapus" @click="remove(g)"><i class="bi bi-trash"></i></button>
             </template>
           </div>
         </div></div>

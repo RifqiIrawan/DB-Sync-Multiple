@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\DBSync.Infrastructure\DBSync.Infrastructure.csproj" />
@@ -14,4 +14,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="DBSync.UnitTests" />
+  </ItemGroup>
 </Project>

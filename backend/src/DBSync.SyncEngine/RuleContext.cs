@@ -16,6 +16,12 @@ public sealed class MappedColumn
     public bool IsPk { get; init; }
     public ColumnInfo? A { get; init; }
     public ColumnInfo? B { get; init; }
+    /// <summary>Tipe logis bersama untuk membandingkan nilai A dan B (mis. teks vs tanggal -> tanggal), agar perbedaan tipe kolom tidak dianggap perbedaan data.</summary>
+    public string Canon { get; init; } = "";
+    /// <summary>Strategi NULL: null/"AUTO" = NULL di sisi yang boleh-NULL diisi default sisi yang wajib-isi; "STRICT" = biarkan gagal.</summary>
+    public string? Strategy { get; init; }
+    /// <summary>Nilai pengganti NULL (default dari kolom NOT NULL yang punya DEFAULT literal). Null = tidak ada penggantian.</summary>
+    public object? Fill { get; init; }
 }
 
 /// <summary>Seluruh konteks yang dibutuhkan untuk menyinkronkan satu table rule.</summary>
@@ -54,14 +60,14 @@ public sealed class RuleContext
     }
 
     public string PkKey(IReadOnlyDictionary<string, object?> logical) =>
-        JsonSerializer.Serialize(Pk.Select(c => Values.Normalize(logical[c.AName], c.A!.LogicalType, true)));
+        JsonSerializer.Serialize(Pk.Select(c => Values.Normalize(logical[c.AName], c.Canon, true)));
 
     public string RowHash(IReadOnlyDictionary<string, object?> logical) =>
         // kolom generated/computed di salah satu sisi adalah data turunan: tidak ikut perbandingan (mencegah pantulan A<->B)
-        Values.Hash(Columns.Where(c => !c.A!.IsGenerated && !c.B!.IsGenerated).Select(c => Values.Normalize(logical[c.AName], c.A!.LogicalType, IsFixedChar(c))));
+        Values.Hash(Columns.Where(c => !c.A!.IsGenerated && !c.B!.IsGenerated).Select(c => Values.Normalize(logical[c.AName] ?? c.Fill, c.Canon, IsFixedChar(c))));   // NULL setara default yang akan diisi
 
     /// <summary>CHAR(n)/NCHAR/bpchar diberi padding spasi oleh database; sisi lain (VARCHAR) tidak.</summary>
-    private static bool IsFixedChar(MappedColumn c)
+    internal static bool IsFixedChar(MappedColumn c)
     {
         static bool F(string? t) { t = (t ?? "").ToLowerInvariant(); return t is "char" or "nchar" or "character" or "bpchar" || t.StartsWith("char(") || t.StartsWith("nchar("); }
         return F(c.A?.NativeType) || F(c.B?.NativeType);
@@ -87,7 +93,9 @@ public sealed class RuleContext
         {
             var tc = Col(c, target)!;
             if (tc.IsGenerated) continue;
-            vals[tc.Name] = Values.Coerce(logical[c.AName], tc);
+            var v = logical[c.AName];
+            if (v is null && c.Fill is not null && !tc.IsNullable) v = c.Fill;   // tujuan NOT NULL + DEFAULT: isi default, bukan NULL
+            vals[tc.Name] = Values.Coerce(v, tc);
         }
         var kind = Rule.WriteMode == "INSERT_ONLY" ? ChangeKind.Insert : ChangeKind.Upsert;
         return new ChangeOperation(kind, Schema(target), KeyFor(logical, target), vals);
@@ -115,6 +123,29 @@ public interface IRuleContextFactory
 
 public sealed class RuleContextFactory : IRuleContextFactory
 {
+    /// <summary>Satu sisi NULLABLE dan sisi lain NOT NULL dengan DEFAULT literal: NULL diganti default tersebut (kecuali strategi STRICT / primary key).</summary>
+    /// <summary>Pilih tipe pembanding bersama: teks vs tanggal/angka/uuid/json -> tipe non-teks; integer vs desimal -> desimal; tanggal vs timestamp -> timestamp.</summary>
+    internal static string Canonical(ColumnInfo a, ColumnInfo b)
+    {
+        string x = a.LogicalType, y = b.LogicalType;
+        if (x == y) return x;
+        static bool Temporal(string t) => t is LogicalTypes.Date or LogicalTypes.Time or LogicalTypes.Timestamp or LogicalTypes.TimestampTz;
+        static bool Typed(string t) => Temporal(t) || t is LogicalTypes.Integer or LogicalTypes.Decimal or LogicalTypes.Float or LogicalTypes.Boolean or LogicalTypes.Uuid or LogicalTypes.Json;
+        if (x == LogicalTypes.Text && Typed(y)) return y;
+        if (y == LogicalTypes.Text && Typed(x)) return x;
+        if (Temporal(x) && Temporal(y)) return x == LogicalTypes.Date ? y : y == LogicalTypes.Date ? x : LogicalTypes.Timestamp;
+        if ((x is LogicalTypes.Decimal or LogicalTypes.Float) || (y is LogicalTypes.Decimal or LogicalTypes.Float)) return LogicalTypes.Decimal;
+        return x;
+    }
+
+    internal static object? ComputeFill(SyncColumnMapping m, ColumnInfo a, ColumnInfo b)
+    {
+        if (m.IsPrimaryKey || string.Equals(m.DataTypeStrategy, "STRICT", StringComparison.OrdinalIgnoreCase)) return null;
+        ColumnInfo? notNull = a.IsNullable && !b.IsNullable ? b : b.IsNullable && !a.IsNullable ? a : null;
+        if (notNull?.DefaultValue is null || notNull.IsIdentity || notNull.IsGenerated) return null;
+        try { return Values.Coerce(notNull.DefaultValue, notNull); } catch (ConnectorException) { return null; }
+    }
+
     private readonly DbSyncContext _db;
     private readonly IConnectionProfileFactory _profiles;
     private readonly IConnectorRegistry _registry;
@@ -145,7 +176,7 @@ public sealed class RuleContextFactory : IRuleContextFactory
             var a = sa.Find(m.EndpointAColumn); var b = sb.Find(m.EndpointBColumn);
             if (a is null || b is null)
                 throw new ConnectorException(ErrorClass.Configuration, "COLUMN_MISSING", $"Kolom {m.EndpointAColumn}/{m.EndpointBColumn} tidak ada pada schema aktual.");
-            cols.Add(new MappedColumn { AName = a.Name, BName = b.Name, IsPk = m.IsPrimaryKey, A = a, B = b });
+            cols.Add(new MappedColumn { AName = a.Name, BName = b.Name, IsPk = m.IsPrimaryKey, A = a, B = b, Strategy = m.DataTypeStrategy, Fill = ComputeFill(m, a, b), Canon = Canonical(a, b) });
         }
         if (!cols.Any(c => c.IsPk))
             throw new ConnectorException(ErrorClass.Configuration, "PRIMARY_KEY_REQUIRED", $"Tabel {rule.EndpointATable} tidak memiliki primary key terpetakan.");

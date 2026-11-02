@@ -44,7 +44,7 @@ public sealed class MySqlDatabaseConnector : AdoNetConnectorBase
     {
         var cols = await QueryAsync(c, p,
             @"SELECT COLUMN_NAME AS name, DATA_TYPE AS dt, COLUMN_TYPE AS ct, IS_NULLABLE AS nullable, COLUMN_KEY AS ck, EXTRA AS extra,
-                     ORDINAL_POSITION AS ord, CHARACTER_MAXIMUM_LENGTH AS len, NUMERIC_PRECISION AS prec, NUMERIC_SCALE AS scale
+                     ORDINAL_POSITION AS ord, CHARACTER_MAXIMUM_LENGTH AS len, NUMERIC_PRECISION AS prec, NUMERIC_SCALE AS scale, COLUMN_DEFAULT AS def
               FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@s AND TABLE_NAME=@t ORDER BY ORDINAL_POSITION",
             ct, ("s", schema), ("t", table));
         if (cols.Count == 0) throw new ConnectorException(ErrorClass.Configuration, "TABLE_NOT_FOUND", $"Tabel {schema}.{table} tidak ditemukan.");
@@ -59,7 +59,7 @@ public sealed class MySqlDatabaseConnector : AdoNetConnectorBase
                 r["nullable"]!.ToString() == "YES", r["ck"]?.ToString() == "PRI", Convert.ToInt32(r["ord"]),
                 r["len"] is null ? null : (int?)Math.Min(Convert.ToInt64(r["len"]), int.MaxValue),
                 r["prec"] is null ? null : Convert.ToInt32(r["prec"]), r["scale"] is null ? null : Convert.ToInt32(r["scale"]),
-                extra.Contains("auto_increment"), extra.Contains("generated"), ct2.Contains("unsigned"));
+                extra.Contains("auto_increment"), extra.Contains("generated"), ct2.Contains("unsigned"), MyDefault(r["def"]?.ToString(), extra));
         }).ToList();
 
         var fkRows = await QueryAsync(c, p,
@@ -70,6 +70,16 @@ public sealed class MySqlDatabaseConnector : AdoNetConnectorBase
             new ForeignKeyInfo(g.Key, g.Select(x => x["col"]!.ToString()!).ToList(), g.First()["rs"]!.ToString()!, g.First()["rt"]!.ToString()!, g.Select(x => x["rc"]!.ToString()!).ToList())).ToList();
 
         return new TableSchema(schema, table, columns, fks);
+    }
+
+    /// <summary>MariaDB memberi literal ber-kutip ('abc'), MySQL 8 memberi nilai mentah (abc). Ekspresi (CURRENT_TIMESTAMP, fungsi) tidak didukung.</summary>
+    private static string? MyDefault(string? raw, string extra)
+    {
+        if (raw is null || extra.Contains("default_generated") || extra.Contains("auto_increment")) return null;
+        if (raw.Equals("NULL", StringComparison.OrdinalIgnoreCase)) return null;
+        if (raw.StartsWith('\'')) return SqlDefaults.ParseLiteral(raw);
+        if (raw.Contains('(') || raw.StartsWith("CURRENT_", StringComparison.OrdinalIgnoreCase)) return null;
+        return raw;
     }
 
     private static string MapLogical(string dt, string columnType) => dt switch

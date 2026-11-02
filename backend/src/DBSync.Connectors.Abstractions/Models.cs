@@ -30,7 +30,33 @@ public static class LogicalTypes
 public sealed record ColumnInfo(
     string Name, string NativeType, string LogicalType, bool IsNullable, bool IsPrimaryKey, int Ordinal,
     int? MaxLength = null, int? Precision = null, int? Scale = null, bool IsIdentity = false, bool IsGenerated = false,
-    bool IsUnsigned = false);
+    bool IsUnsigned = false, string? DefaultValue = null);
+
+/// <summary>Mengurai nilai DEFAULT kolom yang berupa literal sederhana (angka, teks, true/false). Fungsi/ekspresi (now(), nextval(), ...) dianggap tidak didukung (null).</summary>
+public static class SqlDefaults
+{
+    public static string? ParseLiteral(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var s = raw.Trim();
+        while (s.Length > 1 && s[0] == '(' && s[^1] == ')') s = s[1..^1].Trim();
+        if (s.Equals("NULL", StringComparison.OrdinalIgnoreCase)) return null;
+        if (s.StartsWith("N'", StringComparison.OrdinalIgnoreCase)) s = s[1..];
+        if (s.StartsWith('\'')) // 'teks' atau 'teks'::tipe
+        {
+            var sb = new System.Text.StringBuilder(); int i = 1;
+            for (; i < s.Length; i++)
+            {
+                if (s[i] == '\'') { if (i + 1 < s.Length && s[i + 1] == '\'') { sb.Append('\''); i++; continue; } break; }
+                sb.Append(s[i]);
+            }
+            var rest = i + 1 < s.Length ? s[(i + 1)..].Trim() : "";
+            return rest.Length == 0 || rest.StartsWith("::") ? sb.ToString() : null;
+        }
+        if (s.Equals("true", StringComparison.OrdinalIgnoreCase) || s.Equals("false", StringComparison.OrdinalIgnoreCase)) return s.ToLowerInvariant();
+        return decimal.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _) ? s : null;
+    }
+}
 
 public sealed record ForeignKeyInfo(string Name, IReadOnlyList<string> Columns, string RefSchema, string RefTable, IReadOnlyList<string> RefColumns);
 

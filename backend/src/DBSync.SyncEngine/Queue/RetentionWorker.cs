@@ -44,7 +44,7 @@ public sealed class RetentionWorker : BackgroundService
         var runs = await db.SyncRuns.Where(r => r.FinishedAt != null && r.FinishedAt < run && r.Status != RunStatus.Running && r.Status != RunStatus.Queued).ExecuteDeleteAsync(ct);
         var logs = await db.AuditLogs.Where(a => a.CreatedAt < audit).ExecuteDeleteAsync(ct);
         var tokens = await db.RefreshTokens.Where(t => t.ExpiresAt < now.AddDays(-7)).ExecuteDeleteAsync(ct);
-        var workers = await db.WorkerHeartbeats.Where(w => w.LastHeartbeatAt < now.AddDays(-7)).ExecuteDeleteAsync(ct);
+        var workers = await db.WorkerHeartbeats.Where(w => w.LastHeartbeatAt < now.AddDays(-1)).ExecuteDeleteAsync(ct);
         _log.LogInformation("Retention: events={E} processed={P} runs={R} audit={A} tokens={T} workers={W}", events, processed, runs, logs, tokens, workers);
     }
 }

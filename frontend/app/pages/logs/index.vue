@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const api = useApi(); const auth = useAuth(); const toast = useToast()
+const api = useApi(); const auth = useAuth(); const toast = useToast(); const confirm = useConfirm()
 const tab = ref<'events' | 'dead'>('events')
 const f = ref({ status: '', groupId: '', operation: '', from: '', to: '' })
 const groups = ref<any[]>([]); const page = ref(1); const size = 25
@@ -15,6 +15,11 @@ onMounted(async () => { groups.value = await api.get('/sync-groups'); load() })
 watch([tab, page], load); watch(f, () => { page.value = 1; load() }, { deep: true })
 usePolling(load, 8000)
 async function retry(e: any) { await api.post(`/monitoring/dead-letters/${e.id}/retry`); toast.success('Event dijadwalkan ulang'); await load() }
+async function retryAll() {
+  if (!(await confirm.ask('Coba ulang semua dead letter?', `${fmtNum(list.value.total)} event${f.value.groupId ? ' pada grup terpilih' : ''} dikembalikan ke antrean. Lakukan ini setelah penyebab error diperbaiki; bila penyebabnya belum teratasi, event akan gagal lagi.`))) return
+  const r = await api.post('/monitoring/dead-letters/retry-all', { groupId: f.value.groupId || null })
+  toast.success(`${r.retried} event dijadwalkan ulang`, 'Akan diproses pada siklus sinkronisasi berikutnya.'); await load()
+}
 async function show(e: any) { detail.value = await api.get(`/monitoring/events/${e.id}`) }
 </script>
 <template>
@@ -26,6 +31,7 @@ async function show(e: any) { detail.value = await api.get(`/monitoring/events/$
     </ul>
     <div class="card mb-3"><div class="card-body d-flex gap-2 flex-wrap">
       <select v-model="f.groupId" class="form-select form-select-sm" style="width: 200px"><option value="">Semua group</option><option v-for="g in groups" :key="g.id" :value="g.id">{{ g.groupName }}</option></select>
+      <button v-if="tab === 'dead' && list.total > 0 && auth.canOperate.value" class="btn btn-sm btn-primary ms-auto" @click="retryAll"><i class="bi bi-arrow-repeat"></i> Coba ulang semua ({{ fmtNum(list.total) }})</button>
       <template v-if="tab === 'events'">
         <select v-model="f.status" class="form-select form-select-sm" style="width: 150px"><option value="">Semua status</option><option v-for="s in ['PENDING', 'PROCESSING', 'SUCCESS', 'RETRY', 'FAILED', 'CONFLICT', 'SKIPPED', 'DEAD_LETTER']" :key="s">{{ s }}</option></select>
         <select v-model="f.operation" class="form-select form-select-sm" style="width: 130px"><option value="">Semua operasi</option><option>INSERT</option><option>UPDATE</option><option>DELETE</option></select>

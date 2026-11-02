@@ -33,7 +33,8 @@ public class MonitoringController : ApiBase
         var running = await db.SyncRuns.AsNoTracking().Where(r => r.Status == RunStatus.Running || r.Status == RunStatus.Queued || r.Status == RunStatus.Cancelling)
             .Select(r => new { r.Id, r.SyncGroupId, groupName = r.SyncGroup!.GroupName, r.RunType, r.Status, items = r.Items.Select(i => new { i.TableLabel, i.Status, i.TotalRows, i.RecordsRead, i.RecordsWritten, i.RecordsFailed }) }).ToListAsync(ct);
         var cutoff = DateTimeOffset.UtcNow.AddSeconds(-30);
-        var workers = await db.WorkerHeartbeats.AsNoTracking().OrderBy(w => w.WorkerType).Select(w => new { w.WorkerId, w.WorkerType, w.Hostname, w.Status, w.LastHeartbeatAt, online = w.LastHeartbeatAt > cutoff && w.Status == "RUNNING" }).ToListAsync(ct);
+        var hbRecent = DateTimeOffset.UtcNow.AddMinutes(-15);   // proses lama yang sudah mati tidak ditampilkan di dashboard
+        var workers = await db.WorkerHeartbeats.AsNoTracking().Where(w => w.LastHeartbeatAt > hbRecent).OrderBy(w => w.WorkerType).Select(w => new { w.WorkerId, w.WorkerType, w.Hostname, w.Status, w.LastHeartbeatAt, online = w.LastHeartbeatAt > cutoff && w.Status == "RUNNING" }).ToListAsync(ct);
         int E(string k) => ev.GetValueOrDefault(k);
         return new
         {
@@ -93,6 +94,28 @@ public class MonitoringController : ApiBase
         return Success(new { c.Id, c.Status, c.ResolutionStrategy }, "Konflik diselesaikan");
     }
 
+    public record ResolveAllRequest(string Winner, Guid? GroupId, Guid? TableRuleId);
+
+    /// <summary>Selesaikan banyak konflik sekaligus dengan satu aturan (semua pakai versi A atau semua pakai versi B). Maks. 1000 per panggilan.</summary>
+    [HttpPost("monitoring/conflicts/resolve-all"), Authorize(Policy = Policies.Operate)]
+    public async Task<IActionResult> ResolveAll(ResolveAllRequest req, CancellationToken ct)
+    {
+        var w = req.Winner?.ToUpperInvariant();
+        if (w is not ("A" or "B")) throw new ApiException(400, "INVALID_WINNER", "winner harus A atau B.", "winner");
+        var q = _db.SyncConflicts.AsNoTracking().Where(c => c.Status == "PENDING");
+        if (req.GroupId != null) q = q.Where(c => c.SyncGroupId == req.GroupId);
+        if (req.TableRuleId != null) q = q.Where(c => c.TableRuleId == req.TableRuleId);
+        var ids = await q.OrderBy(c => c.CreatedAt).Select(c => c.Id).Take(1000).ToListAsync(ct);
+        int ok = 0, fail = 0; var errors = new List<string>();
+        foreach (var id in ids)
+        {
+            try { await _conflicts.ResolveAsync(id, w[0], UserId, ct); ok++; }
+            catch (Exception ex) when (ex is not OperationCanceledException) { fail++; if (errors.Count < 5) errors.Add(ex.Message); _db.ChangeTracker.Clear(); }
+        }
+        await Log("RESOLVE_CONFLICTS_BULK", "SyncConflict", null, null, new { winner = w, resolved = ok, failed = fail, req.GroupId, req.TableRuleId });
+        return Success(new { resolved = ok, failed = fail, errors }, $"{ok} konflik diselesaikan");
+    }
+
     [HttpGet("monitoring/dead-letters")]
     public async Task<IActionResult> DeadLetters([FromQuery] Guid? groupId, int? page, int? pageSize, CancellationToken ct)
     {
@@ -117,11 +140,27 @@ public class MonitoringController : ApiBase
         return Accepted202(new { id, status = e.Status }, "Event dijadwalkan ulang");
     }
 
+    public record RetryAllRequest(Guid? GroupId, Guid? TableRuleId, string? ErrorCode);
+
+    /// <summary>Kembalikan SEMUA dead letter (sesuai filter) ke antrean retry. Gunakan setelah penyebab error diperbaiki.</summary>
+    [HttpPost("monitoring/dead-letters/retry-all"), Authorize(Policy = Policies.Operate)]
+    public async Task<IActionResult> RetryAll(RetryAllRequest req, CancellationToken ct)
+    {
+        var q = _db.SyncEvents.Where(e => e.Status == EventStatus.DeadLetter);
+        if (req.GroupId != null) q = q.Where(e => e.SyncGroupId == req.GroupId);
+        if (req.TableRuleId != null) q = q.Where(e => e.TableRuleId == req.TableRuleId);
+        if (!string.IsNullOrEmpty(req.ErrorCode)) q = q.Where(e => e.ErrorCode == req.ErrorCode);
+        var n = await q.ExecuteUpdateAsync(s => s.SetProperty(e => e.Status, EventStatus.Retry).SetProperty(e => e.RetryCount, 0).SetProperty(e => e.NextRetryAt, (DateTimeOffset?)null).SetProperty(e => e.ErrorMessage, "Di-retry oleh operator"), ct);
+        await Log("RETRY_DEAD_LETTERS_BULK", "SyncEvent", null, null, new { count = n, req.GroupId, req.TableRuleId, req.ErrorCode });
+        return Success(new { retried = n }, $"{n} event dijadwalkan ulang");
+    }
+
     [HttpGet("monitoring/workers")]
     public async Task<IActionResult> Workers(CancellationToken ct)
     {
         var cutoff = DateTimeOffset.UtcNow.AddSeconds(-30);
-        return Success(await _db.WorkerHeartbeats.AsNoTracking().OrderBy(w => w.WorkerType).ThenBy(w => w.Hostname)
+        var day = DateTimeOffset.UtcNow.AddDays(-1);
+        return Success(await _db.WorkerHeartbeats.AsNoTracking().Where(w => w.LastHeartbeatAt > day).OrderBy(w => w.WorkerType).ThenBy(w => w.Hostname)
             .Select(w => new { w.WorkerId, w.WorkerType, w.Hostname, w.Status, w.LastHeartbeatAt, w.Metadata, online = w.LastHeartbeatAt > cutoff && w.Status == "RUNNING" }).ToListAsync(ct));
     }
 

@@ -124,7 +124,7 @@ const errors = computed(() => (report.value?.issues ?? []).filter((i: any) => i.
           <span v-for="c in checks" :key="c.text" class="status" :class="c.ok ? 's-ok' : 's-mute'"><i :class="`bi bi-${c.ok ? 'check-circle-fill' : 'circle'}`"></i> {{ c.text }}</span>
         </div></div>
       </div>      <!-- 2 -->
-      <div v-if="step === 1"><SynchronizationTableSelector :group-id="groupId" /></div>
+      <div v-if="step === 1"><SynchronizationTableSelector :group-id="groupId" :group-direction="f.syncDirection" /></div>
       <!-- 3 -->
       <div v-if="step === 2">
         <p class="text-muted">Kolom bernama sama dipetakan otomatis. Anda dapat menyesuaikan nama kolom per tabel:</p>
